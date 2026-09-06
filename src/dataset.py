@@ -1,4 +1,4 @@
-﻿import cv2
+import cv2
 import torch
 import numpy as np
 import pandas as pd
@@ -38,13 +38,16 @@ class RWF2000Dataset(Dataset):
         frames = []
         frame_idx = 0
         while cap.isOpened() and len(frames) < self.num_frames:
-            ret, frame = cap.read()
-            if not ret:
-                break
             if frame_idx in indices_set:
+                ret, frame = cap.read()
+                if not ret:
+                    break
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame = cv2.resize(frame, (224, 224))
                 frames.append(frame)
+            else:
+                if not cap.grab():
+                    break
             frame_idx += 1
         cap.release()
 

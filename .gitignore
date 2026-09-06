@@ -1,10 +1,11 @@
-# Datasets e arquivos pesados
+# Datasets brutos e temporarios
 archive/
 archive.zip
 *.zip
 *.tar.gz
+data/cache/
 
-# Python
+# Python e Cache
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
@@ -13,9 +14,4 @@ __pycache__/
 venv/
 .venv/
 env/
-
-# Checkpoints e pesos de modelos
-*.pth
-*.pt
-*.onnx
-*.tflite
+experiments/

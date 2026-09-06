@@ -1,0 +1,5 @@
+Modelo,Padrão (0.50) - Acc (%),Padrão (0.50) - Rec (%),Padrão (0.50) - Prec (%),Padrão (0.50) - F1 (%),Padrão (0.50) - FNs,Padrão (0.50) - FPs,Limiar Ótimo F1,Ótimo F1 - Acc (%),Ótimo F1 - Rec (%),Ótimo F1 - Prec (%),Ótimo F1 - F1 (%),Ótimo F1 - FNs,Ótimo F1 - FPs,Limiar Alta Segurança,Alta Seg - Rec (%),Alta Seg - Prec (%),Alta Seg - FNs,Alta Seg - FPs
+2D Baseline,74.05,68.18,75.0,71.43,28,20,0.3,76.22,94.32,68.03,79.05,5,39,0.35,85.23,68.81,13,34
+Bi-GRU (Proposto),72.43,73.86,69.89,71.82,23,28,0.3,72.97,94.32,64.84,76.85,5,45,0.45,81.82,71.29,16,29
+Bi-GRU + Atenção,74.05,72.73,72.73,72.73,24,24,0.25,72.43,84.09,66.67,74.37,14,37,0.25,84.09,66.67,14,37
+Temporal Transformer,76.22,80.68,72.45,76.34,17,27,0.55,78.38,79.55,76.09,77.78,18,22,0.5,80.68,72.45,17,27
