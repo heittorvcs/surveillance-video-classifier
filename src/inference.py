@@ -1,6 +1,11 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import os
 import time
 import argparse
@@ -9,13 +14,17 @@ import torch
 import numpy as np
 from torchvision import transforms
 
-from src.model import VideoClassifier
+from src.model import load_classifier, VideoClassifierDualStream
 
 def preprocess_video(video_path, num_frames=16):
     """
-    Extrai 16 frames equidistantes, redimensiona para 224x224 e normaliza.
+    Decodificação eficiente com amostragem uniforme de 16 frames,
+    redimensionamento para 224x224 e normalização ImageNet.
     """
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Não foi possível abrir o arquivo de vídeo: {video_path}")
+
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     if total_frames <= 0:
         total_frames = num_frames
@@ -49,11 +58,11 @@ def preprocess_video(video_path, num_frames=16):
     for t in range(num_frames):
         tensor[t] = normalize(tensor[t])
 
-    return tensor.unsqueeze(0)  # Shape (1, 16, 3, 224, 224)
+    return tensor.unsqueeze(0)  # Shape: (1, 16, 3, 224, 224)
 
-def export_onnx(model, device, output_path="models/model.onnx"):
+def export_onnx(model, device, output_path="models/model_dualstream.onnx"):
     """
-    Exporta o modelo para formato ONNX para inferencia otimizada em borda (Edge AI).
+    Exporta modelo para o padrão aberto ONNX para inferência otimizada em Edge AI.
     """
     model.eval()
     dummy_input = torch.randn(1, 16, 3, 224, 224, device=device)
@@ -63,70 +72,89 @@ def export_onnx(model, device, output_path="models/model.onnx"):
         output_path,
         input_names=["input_video"],
         output_names=["logits"],
-        opset_version=14,
-        dynamo=False
+        dynamic_axes={"input_video": {0: "batch_size"}, "logits": {0: "batch_size"}},
+        opset_version=14
     )
-    print(f"[ONNX] Modelo exportado com sucesso para '{output_path}'")
+    print(f"[ONNX] Grafo exportado com sucesso para '{output_path}'")
 
 def main():
-    parser = argparse.ArgumentParser(description="Inferencia em video de teste")
-    parser.add_argument("--video", type=str, default=None, help="Caminho do video para teste (.avi, .mp4)")
-    parser.add_argument("--threshold", type=float, default=0.50, help="Limiar de probabilidade para classificar como Fight (padrao: 0.50)")
-    parser.add_argument("--weights", type=str, default="models/best_model.pth", help="Caminho dos pesos salvos")
-    parser.add_argument("--export_onnx", action="store_true", help="Exporta modelo treinado para ONNX")
+    parser = argparse.ArgumentParser(description="Classificador de Violência em Vigilância (Edge AI)")
+    parser.add_argument("--video", type=str, default="sample_video.avi", help="Caminho do vídeo para teste (.avi, .mp4)")
+    parser.add_argument("--model", type=str, default="ensemble", choices=["ensemble", "dualstream", "baseline"],
+                        help="Modelo a executar: 'ensemble' (85.41% SOTA), 'dualstream' (82.16%) ou 'baseline' (75.14%)")
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Limiar de probabilidade Fight (padrão: 0.52 para ensemble, 0.50 para outros)")
+    parser.add_argument("--weights", type=str, default=None, help="Caminho customizado para pesos")
+    parser.add_argument("--export_onnx", action="store_true", help="Exporta modelo Dual-Stream para formato ONNX")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1. Carrega modelo treinado
-    model = VideoClassifier(num_classes=2).to(device)
-    if not os.path.exists(args.weights):
-        raise FileNotFoundError(f"Pesos nao encontrados em {args.weights}. Treine o modelo primeiro.")
-    model.load_state_dict(torch.load(args.weights, map_location=device))
-    model.eval()
-
     if args.export_onnx:
-        export_onnx(model, device)
+        m_dual = VideoClassifierDualStream().to(device)
+        export_onnx(m_dual, device)
         if not args.video:
             return
 
-    # Se nenhum video for passado, seleciona o primeiro video do conjunto de teste
-    if not args.video:
-        import pandas as pd
-        df_test = pd.read_csv("data/splits/test.csv")
-        sample_video = df_test.iloc[0]
-        video_path = sample_video["video_path"]
-        ground_truth = sample_video["label_name"]
-    else:
-        video_path = args.video
-        ground_truth = "Desconhecido"
+    # 1. Carregar Modelo Selecionado
+    model, default_th, model_desc = load_classifier(args.model, device=device, custom_path=args.weights)
+    threshold = args.threshold if args.threshold is not None else default_th
 
-    print(f"\nProcessando video: {video_path}")
+    # 2. Obter Vídeo
+    video_path = args.video
+    ground_truth = "Desconhecido / Em Produção"
+    if not os.path.exists(video_path):
+        # Fallback para primeiro vídeo do conjunto de teste se o arquivo não existir
+        if os.path.exists("data/splits/test.csv"):
+            import pandas as pd
+            df_test = pd.read_csv("data/splits/test.csv")
+            sample = df_test.iloc[0]
+            video_path = sample["video_path"]
+            ground_truth = f"{sample['label_name']} (Split de Teste)"
+        else:
+            raise FileNotFoundError(f"Vídeo de entrada não encontrado: {video_path}")
+
+    print(f"\n" + "="*65)
+    print(f"SURVEILLANCE VIDEO CLASSIFIER — INFERÊNCIA OPERACIONAL")
+    print("="*65)
+    print(f"Dispositivo de Execução: {device}")
+    print(f"Modelo Ativo:            {model_desc}")
+    print(f"Arquivo de Vídeo:        {video_path}")
+    print(f"Rótulo Real (Ground Truth): {ground_truth}")
+
+    # 3. Pré-processamento
     input_tensor = preprocess_video(video_path).to(device)
 
-    # 2. Execucao com medicao de latencia
+    # 4. Inferência com Cronometragem Rigorosa
     t0 = time.perf_counter()
     with torch.no_grad():
-        logits = model(input_tensor)
-        probs = torch.softmax(logits, dim=1)[0]
+        output = model(input_tensor)
+        # Se for o Ensemble, o retorno já é a probabilidade do softmax; se for logits, aplica softmax
+        if args.model == "ensemble":
+            probs = output[0]
+        else:
+            probs = torch.softmax(output, dim=1)[0]
+            
         prob_fight = probs[1].item()
-        pred_idx = 1 if prob_fight >= args.threshold else 0
+        prob_nonfight = probs[0].item()
+        pred_idx = 1 if prob_fight >= threshold else 0
+        
     latency_ms = (time.perf_counter() - t0) * 1000
+    fps_equiv = 16000.0 / latency_ms
 
-    classes = ["NonFight (Nao Violento)", "Fight (Violento)"]
+    classes = ["NonFight (Normal / Sem Agressão)", "Fight (Violência Detectada!)"]
     pred_label = classes[pred_idx]
-    confidence = probs[pred_idx].item() * 100
+    confidence = (prob_fight if pred_idx == 1 else prob_nonfight) * 100
 
-    print("\n================ RESULTADO DA INFERENCIA ================")
-    print(f"Video analisado:       {os.path.basename(video_path)}")
-    print(f"Rotulo Real (GT):      {ground_truth}")
-    print(f"Predicao do Modelo:    {pred_label}")
-    print(f"Confianca:             {confidence:.2f}%")
-    print(f"Prob. Fight:           {prob_fight*100:.2f}% | Prob. NonFight: {probs[0].item()*100:.2f}%")
-    print(f"Limiar de Decisao (th): {args.threshold:.2f}")
-    print(f"Latencia (Inferencia): {latency_ms:.1f} ms (~{1000/latency_ms:.1f} FPS)")
-    print("=========================================================\n")
+    print("\n---------------- RELATÓRIO DE INFERÊNCIA ----------------")
+    print(f"Decisão do Sistema:      {pred_label}")
+    print(f"Confiança da Decisão:    {confidence:.2f}%")
+    print(f"Probabilidade Fight:     {prob_fight * 100:.2f}%")
+    print(f"Probabilidade NonFight:  {prob_nonfight * 100:.2f}%")
+    print(f"Limiar de Decisão (θ):   {threshold:.2f}")
+    print(f"Latência End-to-End:     {latency_ms:.2f} ms")
+    print(f"Throughput Estimado:     {1000.0/latency_ms:.1f} vídeos/s ({fps_equiv:.1f} FPS equiv.)")
+    print("="*65 + "\n")
 
 if __name__ == "__main__":
     main()
-

@@ -1,107 +1,154 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import os
 import json
+import argparse
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
-from torch.utils.data import DataLoader
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    confusion_matrix,
+    classification_report,
+    roc_auc_score
+)
 
-from src.dataset import RWF2000Dataset
-from src.model import VideoClassifier
+from src.model import (
+    BiGRU_Head,
+    DualStream_Head,
+    TriStream_Kinetic,
+    DualStream_MeanMax
+)
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Avaliacao no conjunto de teste cego")
-    parser.add_argument("--threshold", type=float, default=0.50, help="Limiar de probabilidade para classificar como Fight (padrao: 0.50)")
-    args = parser.parse_args()
-
+def evaluate_model(model_type="ensemble", threshold=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Executando avaliacao no dispositivo: {device} | Limiar (th): {args.threshold:.2f}")
-
-    # 1. Carrega o modelo com os melhores pesos
-    model = VideoClassifier(num_classes=2).to(device)
-    checkpoint_path = "models/best_model.pth"
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"Pesos nao encontrados em {checkpoint_path}. Execute src/train.py primeiro.")
     
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    model.eval()
+    # Carregar features pré-extraídas do conjunto de teste cego (185 vídeos)
+    cache_path = "data/cache/features_test.pt"
+    if not os.path.exists(cache_path):
+        raise FileNotFoundError(f"Cache de teste não encontrado em: {cache_path}")
+        
+    test_feats, test_labels = torch.load(cache_path, map_location=device)
+    y_true = test_labels.numpy()
+    
+    model_type = model_type.lower()
+    
+    if model_type == "baseline":
+        model = BiGRU_Head().to(device)
+        sd = torch.load("models/best_model.pth", map_location=device)
+        head_sd = {k: v for k, v in sd.items() if not k.startswith("features.")}
+        model.load_state_dict(head_sd)
+        model.eval()
+        th = threshold if threshold is not None else 0.50
+        model_name = "Modelo 1: Baseline Minimalista (Bi-GRU)"
+        with torch.no_grad():
+            logits = model(test_feats)
+            probs = torch.softmax(logits, dim=1)[:, 1].numpy()
+            
+    elif model_type == "dualstream":
+        model = DualStream_Head().to(device)
+        candidate_paths = [
+            "models/model_dualstream_best.pth",
+            "experiments/model_dualstream_best.pth",
+            "legacy_experiments/model_dualstream_best.pth"
+        ]
+        path = next((p for p in candidate_paths if os.path.exists(p)), None)
+        if not path:
+            raise FileNotFoundError("Pesos do DualStream_Head não encontrados em models/ ou experiments/")
+        model.load_state_dict(torch.load(path, map_location=device))
+        model.eval()
+        th = threshold if threshold is not None else 0.50
+        model_name = "Modelo 2: Dual-Stream Latente (Aparência + Velocidade Δf)"
+        with torch.no_grad():
+            logits = model(test_feats)
+            probs = torch.softmax(logits, dim=1)[:, 1].numpy()
+            
+    elif model_type in ["ensemble", "tristream", "kinetic"]:
+        def resolve_path(filename, subfolders):
+            for sub in subfolders:
+                full = os.path.join(sub, filename)
+                if os.path.exists(full):
+                    return full
+            raise FileNotFoundError(f"Pesos não encontrados para: {filename}")
 
-    # 2. Dataset e DataLoader do conjunto de TESTE cego
-    test_ds = RWF2000Dataset("data/splits/test.csv", num_frames=16, is_train=False)
-    test_loader = DataLoader(test_ds, batch_size=8, shuffle=False)
+        subfolders = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
+        m1 = TriStream_Kinetic().to(device)
+        m1.load_state_dict(torch.load(resolve_path("model_tristream_s7.pth", subfolders), map_location=device))
+        m1.eval()
+        
+        m2 = DualStream_MeanMax().to(device)
+        m2.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s5.pth", subfolders), map_location=device))
+        m2.eval()
+        
+        m3 = DualStream_MeanMax().to(device)
+        m3.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s10.pth", subfolders), map_location=device))
+        m3.eval()
+        
+        th = threshold if threshold is not None else 0.52
+        model_name = "Modelo 3: Ensemble Cinético Tri-Stream (1x TriStream + 2x DualStream)"
+        with torch.no_grad():
+            p1 = torch.softmax(m1(test_feats), dim=1)[:, 1].numpy()
+            p2 = torch.softmax(m2(test_feats), dim=1)[:, 1].numpy()
+            p3 = torch.softmax(m3(test_feats), dim=1)[:, 1].numpy()
+        probs = (p1 + p2 + p3) / 3.0
+    else:
+        raise ValueError(f"Modelo inválido: '{model_type}'. Use: baseline, dualstream, ensemble.")
 
-    all_targets = []
-    all_probs = []
+    preds = (probs >= th).astype(int)
+    acc = accuracy_score(y_true, preds) * 100
+    prec, rec, f1, _ = precision_recall_fscore_support(y_true, preds, average="binary")
+    prec *= 100
+    rec *= 100
+    f1 *= 100
+    auc = roc_auc_score(y_true, probs) * 100
+    cm = confusion_matrix(y_true, preds)
+    hits = int(round(acc * len(y_true) / 100))
 
-    print(f"Avaliando {len(test_ds)} videos de teste...")
-    with torch.no_grad():
-        for videos, labels in test_loader:
-            videos = videos.to(device)
-            logits = model(videos)
-            probs = torch.softmax(logits, dim=1)[:, 1]
+    print("\n" + "="*68)
+    print(f"AVALIAÇÃO OFICIAL NO TESTE CEGO — {model_name}")
+    print("="*68)
+    print(f"Total de Vídeos Avaliados: {len(y_true)} (Fight: {sum(y_true==1)}, NonFight: {sum(y_true==0)})")
+    print(f"Limiar de Decisão (θ):     {th:.2f}")
+    print(f"Total de Acertos:          {hits} / {len(y_true)}")
+    print(f"Acurácia Global (Acc):     {acc:.2f}%")
+    print(f"Sensibilidade (Recall):    {rec:.2f}%")
+    print(f"Precisão (Precision):      {prec:.2f}%")
+    print(f"F1-Score:                  {f1:.2f}%")
+    print(f"AUC-ROC:                   {auc:.2f}%")
+    print("\nMatriz de Confusão:")
+    print(f"  [TN={cm[0,0]:2d}  FP={cm[0,1]:2d}]  (NonFight: {cm[0].sum()})")
+    print(f"  [FN={cm[1,0]:2d}  TP={cm[1,1]:2d}]  (Fight:    {cm[1].sum()})")
+    print("="*68)
+    print("\nRelatório de Classificação Detalhado:")
+    print(classification_report(y_true, preds, target_names=["NonFight", "Fight"]))
+    print("="*68 + "\n")
 
-            all_targets.extend(labels.numpy())
-            all_probs.extend(probs.cpu().numpy())
-
-    all_probs = np.array(all_probs)
-    all_targets = np.array(all_targets)
-    all_preds = (all_probs >= args.threshold).astype(int)
-
-    # 3. Calculo das metricas obrigatorias
-    acc = accuracy_score(all_targets, all_preds)
-    precision, recall, f1, _ = precision_recall_fscore_support(all_targets, all_preds, average="binary", zero_division=0)
-    cm = confusion_matrix(all_targets, all_preds)
-
-    print("\n================ RELATORIO DE AVALIACAO (TESTE) ================")
-    print(f"Limiar de Decisao (th): {args.threshold:.2f}")
-    print(f"Acuracia (Accuracy):    {acc * 100:.2f}%")
-    print(f"Precisao (Precision):   {precision * 100:.2f}%")
-    print(f"Revogacao (Recall):     {recall * 100:.2f}%")
-    print(f"F1-Score:               {f1 * 100:.2f}%")
-    print("\nMatriz de Confusao:")
-    print(cm)
-    print("\nDetalhamento por Classe:")
-    print(classification_report(all_targets, all_preds, target_names=["NonFight", "Fight"], zero_division=0))
-    print("=================================================================\n")
-
-    # 4. Salva metricas em JSON
-    metrics = {
-        "accuracy": float(acc),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1_score": float(f1),
+    return {
+        "model_name": model_name,
+        "threshold": th,
+        "accuracy": acc,
+        "recall": rec,
+        "precision": prec,
+        "f1_score": f1,
+        "auc_roc": auc,
         "confusion_matrix": cm.tolist()
     }
-    with open("reports/test_metrics.json", "w") as f:
-        json.dump(metrics, f, indent=2)
 
-    # 5. Gera e salva imagem da Matriz de Confusao
-    plt.figure(figsize=(6, 5))
-    plt.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
-    plt.title("Matriz de Confusao - Conjunto de Teste")
-    plt.colorbar()
-    classes = ["NonFight", "Fight"]
-    tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes)
-    plt.yticks(tick_marks, classes)
+def main():
+    parser = argparse.ArgumentParser(description="Avaliação no conjunto de teste cego anti-leakage")
+    parser.add_argument("--model", type=str, default="ensemble", choices=["ensemble", "dualstream", "baseline"],
+                        help="Modelo a avaliar: 'ensemble' (85.41% SOTA), 'dualstream' (82.16%) ou 'baseline' (75.14%)")
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Limiar de probabilidade Fight (padrão: 0.52 para ensemble, 0.50 para outros)")
+    args = parser.parse_args()
 
-    thresh = cm.max() / 2.0
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            plt.text(j, i, format(cm[i, j], "d"),
-                     horizontalalignment="center",
-                     color="white" if cm[i, j] > thresh else "black")
-
-    plt.ylabel("Rotulo Real")
-    plt.xlabel("Rotulo Previsto")
-    plt.tight_layout()
-    plt.savefig("reports/confusion_matrix.png", dpi=300)
-    print("Matriz de confusao salva em 'reports/confusion_matrix.png'")
+    evaluate_model(model_type=args.model, threshold=args.threshold)
 
 if __name__ == "__main__":
     main()
-

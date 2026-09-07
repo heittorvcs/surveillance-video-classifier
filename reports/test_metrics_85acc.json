@@ -1,0 +1,49 @@
+{
+    "model_name": "Kinetic Tri-Stream & Dual-Stream Ensemble (3 models)",
+    "ensemble_models": [
+        "TriStream_Kinetic (Seed 7)",
+        "DualStream_MeanMax (Seed 5)",
+        "DualStream_MeanMax (Seed 10)"
+    ],
+    "threshold": 0.52,
+    "num_test_videos": 185,
+    "accuracy": 85.4054054054054,
+    "hits": 158,
+    "precision": 80.19801980198021,
+    "recall": 92.04545454545455,
+    "f1_score": 85.71428571428571,
+    "auc_roc": 89.73758200562324,
+    "confusion_matrix": {
+        "true_negative": 77,
+        "false_positive": 20,
+        "false_negative": 7,
+        "true_positive": 81
+    },
+    "classification_report": {
+        "NonFight": {
+            "precision": 0.9166666666666666,
+            "recall": 0.7938144329896907,
+            "f1-score": 0.850828729281768,
+            "support": 97.0
+        },
+        "Fight": {
+            "precision": 0.801980198019802,
+            "recall": 0.9204545454545454,
+            "f1-score": 0.8571428571428571,
+            "support": 88.0
+        },
+        "accuracy": 0.8540540540540541,
+        "macro avg": {
+            "precision": 0.8593234323432344,
+            "recall": 0.857134489222118,
+            "f1-score": 0.8539857932123125,
+            "support": 185.0
+        },
+        "weighted avg": {
+            "precision": 0.862113103202212,
+            "recall": 0.8540540540540541,
+            "f1-score": 0.8538322063183943,
+            "support": 185.0
+        }
+    }
+}
