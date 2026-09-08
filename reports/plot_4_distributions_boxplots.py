@@ -1,5 +1,15 @@
+"""
+Boxplots das distribuicoes de 20 runs por arquitetura e 20 comites de ensemble.
+
+O ponto vermelho marca o melhor checkpoint entregue. Ele fica FORA da distribuicao
+dos 20 comites porque o trio de sementes e o limiar foram escolhidos observando o
+proprio split de teste — e por isso esta rotulado como tal, e nao como resultado
+esperado do metodo.
+"""
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
@@ -37,8 +47,8 @@ axes[0].set_title("Distribuição de Acurácia Global (%) em 20 Runs", fontsize=
 axes[0].set_ylabel("Acurácia no Teste Cego (%)", fontsize=10)
 axes[0].grid(True, alpha=0.3)
 # Destacar o Ensemble Campeão de Produção
-axes[0].scatter([4], [85.41], color="#c0392b", s=100, zorder=5, label="Campeão Calibrado (85.41%)")
-axes[0].legend(loc="lower right", fontsize=9)
+axes[0].scatter([4], [85.41], color="#c0392b", s=100, zorder=5, label="Melhor checkpoint: 85.41% (selecao no teste)")
+axes[0].legend(loc="lower right", fontsize=8)
 
 # 2. Recall
 bp2 = axes[1].boxplot([m1_rec, m2_rec, m3_rec, ens_rec], patch_artist=True, tick_labels=labels, medianprops=dict(color="black", lw=2))
@@ -48,8 +58,8 @@ for patch, color in zip(bp2["boxes"], palette):
 axes[1].set_title("Distribuição de Recall Fight (%) em 20 Runs", fontsize=11, fontweight="bold", pad=10)
 axes[1].set_ylabel("Sensibilidade (Recall Fight %)", fontsize=10)
 axes[1].grid(True, alpha=0.3)
-axes[1].scatter([4], [92.05], color="#c0392b", s=100, zorder=5, label="Campeão Calibrado (92.05%)")
-axes[1].legend(loc="lower right", fontsize=9)
+axes[1].scatter([4], [92.05], color="#c0392b", s=100, zorder=5, label="Melhor checkpoint: 92.05% (selecao no teste)")
+axes[1].legend(loc="lower right", fontsize=8)
 
 # 3. Falsos Negativos
 bp3 = axes[2].boxplot([m1_fn, m2_fn, m3_fn, ens_fn], patch_artist=True, tick_labels=labels, medianprops=dict(color="black", lw=2))
@@ -59,13 +69,13 @@ for patch, color in zip(bp3["boxes"], palette):
 axes[2].set_title("Falsos Negativos (Lutas Perdidas) em 20 Runs", fontsize=11, fontweight="bold", pad=10)
 axes[2].set_ylabel("Quantidade de Vídeos Perdidos (em 185)", fontsize=10)
 axes[2].grid(True, alpha=0.3)
-axes[2].scatter([4], [7], color="#c0392b", s=100, zorder=5, label="Campeão Calibrado (7 FN)")
-axes[2].legend(loc="upper right", fontsize=9)
+axes[2].scatter([4], [7], color="#c0392b", s=100, zorder=5, label="Melhor checkpoint: 7 FN (selecao no teste)")
+axes[2].legend(loc="upper right", fontsize=8)
 
 plt.suptitle("Validação Estatística Total: 20 Execuções por Arquitetura e 20 Comitês de Ensemble", fontsize=13, fontweight="bold", y=1.02)
 plt.tight_layout()
 
 plt.savefig("reports/benchmark_3_modelos_20_runs_boxplots.png", bbox_inches="tight")
 plt.close()
-print("Boxplots atualizados com os 20 Ensembles!")
+print("Boxplots salvos em reports/benchmark_3_modelos_20_runs_boxplots.png")
 

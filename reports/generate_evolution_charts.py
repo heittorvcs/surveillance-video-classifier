@@ -1,13 +1,35 @@
+"""
+Gera as figuras comparativas dos tres modelos no teste cego:
+  reports/matrizes_confusao_3_modelos.png
+  reports/curvas_roc_3_modelos.png
+  reports/jornada_evolutiva_3_modelos.png
+
+As arquiteturas e o carregamento de pesos vem de src/, sem redefinicao local.
+Pre-requisito: python src/build_cache.py
+"""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import json
 import os
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score, accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    roc_auc_score,
+    roc_curve,
+)
+
+from src.evaluate import load_features, predict_probs
+from src.model import DEFAULT_THRESHOLDS
 
 # Configurar estilo visual
 plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
@@ -16,161 +38,46 @@ plt.rcParams["axes.edgecolor"] = "#cccccc"
 plt.rcParams["axes.linewidth"] = 0.8
 
 device = torch.device("cpu")
-test_feats, test_labels = torch.load("data/cache/features_test.pt", map_location=device)
-y_true = test_labels.numpy()
+test_feats, test_labels = load_features("test", device)
+y_true = test_labels.detach().cpu().numpy()
+n_fight = int((y_true == 1).sum())
 
-# 1. Definicoes de Arquitetura
-class BiGRU_Baseline(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 2, num_classes)
-        )
-    def forward(self, x):
-        out, _ = self.gru(x)
-        return self.classifier(out.mean(dim=1))
+# Probabilidades dos tres modelos no teste cego
+probs1, _ = predict_probs("baseline", test_feats, device)
+probs2, _ = predict_probs("dualstream", test_feats, device)
+probs3, _ = predict_probs("ensemble", test_feats, device)
 
-class DualStream_Latent(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_mot = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 4, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        app_feat = out_app.mean(dim=1)
-        diff = x[:, 1:, :] - x[:, :-1, :]
-        out_mot, _ = self.gru_mot(diff)
-        mot_feat = out_mot.mean(dim=1)
-        combined = torch.cat([app_feat, mot_feat], dim=1)
-        return self.classifier(combined)
+preds1 = (probs1 >= DEFAULT_THRESHOLDS["baseline"]).astype(int)
+preds2 = (probs2 >= DEFAULT_THRESHOLDS["dualstream"]).astype(int)
+preds3 = (probs3 >= DEFAULT_THRESHOLDS["ensemble"]).astype(int)
 
-class TriStream_Kinetic(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_vel = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_acc = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        total_feat_dim = (hidden_dim * 4) * 3
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(total_feat_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        feat_app = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        vel = x[:, 1:, :] - x[:, :-1, :]
-        out_vel, _ = self.gru_vel(vel)
-        feat_vel = torch.cat([out_vel.mean(dim=1), out_vel.max(dim=1).values], dim=1)
-        acc = vel[:, 1:, :] - vel[:, :-1, :]
-        out_acc, _ = self.gru_acc(acc)
-        feat_acc = torch.cat([out_acc.mean(dim=1), out_acc.max(dim=1).values], dim=1)
-        combined = torch.cat([feat_app, feat_vel, feat_acc], dim=1)
-        return self.classifier(combined)
-
-class DualStream_MeanMax(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_mot = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 8, 96),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(96, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        app_feat = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        diff = x[:, 1:, :] - x[:, :-1, :]
-        out_mot, _ = self.gru_mot(diff)
-        mot_feat = torch.cat([out_mot.mean(dim=1), out_mot.max(dim=1).values], dim=1)
-        combined = torch.cat([app_feat, mot_feat], dim=1)
-        return self.classifier(combined)
-
-# 1. Avaliar Modelo 1: Baseline Bi-GRU
-m1 = BiGRU_Baseline().to(device)
-# Extrair pesos da cabeca de models/best_model.pth
-best_sd = torch.load("models/best_model.pth", map_location=device)
-head_sd = {k: v for k, v in best_sd.items() if not k.startswith("features.")}
-m1.load_state_dict(head_sd)
-m1.eval()
-with torch.no_grad():
-    logits1 = m1(test_feats)
-    probs1 = torch.softmax(logits1, dim=1)[:, 1].numpy()
-preds1 = (probs1 >= 0.50).astype(int)
 cm1 = confusion_matrix(y_true, preds1)
-auc1 = roc_auc_score(y_true, probs1) * 100
-
-def resolve_path(filename, subfolders):
-    for sub in subfolders:
-        full = os.path.join(sub, filename)
-        if os.path.exists(full):
-            return full
-    raise FileNotFoundError(f"Arquivo não encontrado: {filename}")
-
-# 2. Avaliar Modelo 2: Dual-Stream Latente
-m2 = DualStream_Latent().to(device)
-p2_head = resolve_path("model_dualstream_best.pth", ["models", "experiments", "legacy_experiments"])
-m2.load_state_dict(torch.load(p2_head, map_location=device))
-m2.eval()
-with torch.no_grad():
-    logits2 = m2(test_feats)
-    probs2 = torch.softmax(logits2, dim=1)[:, 1].numpy()
-preds2 = (probs2 >= 0.50).astype(int)
 cm2 = confusion_matrix(y_true, preds2)
-auc2 = roc_auc_score(y_true, probs2) * 100
-
-# 3. Avaliar Modelo 3: Ensemble Tri-Stream Cinético
-ens_subs = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
-ens1 = TriStream_Kinetic().to(device)
-ens1.load_state_dict(torch.load(resolve_path("model_tristream_s7.pth", ens_subs), map_location=device))
-ens1.eval()
-
-ens2 = DualStream_MeanMax().to(device)
-ens2.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s5.pth", ens_subs), map_location=device))
-ens2.eval()
-
-ens3 = DualStream_MeanMax().to(device)
-ens3.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s10.pth", ens_subs), map_location=device))
-ens3.eval()
-
-with torch.no_grad():
-    p1 = torch.softmax(ens1(test_feats), dim=1)[:, 1].numpy()
-    p2 = torch.softmax(ens2(test_feats), dim=1)[:, 1].numpy()
-    p3 = torch.softmax(ens3(test_feats), dim=1)[:, 1].numpy()
-probs3 = (p1 + p2 + p3) / 3.0
-preds3 = (probs3 >= 0.52).astype(int)
 cm3 = confusion_matrix(y_true, preds3)
+
+auc1 = roc_auc_score(y_true, probs1) * 100
+auc2 = roc_auc_score(y_true, probs2) * 100
 auc3 = roc_auc_score(y_true, probs3) * 100
 
-print(f"Modelo 1: Acc={accuracy_score(y_true, preds1)*100:.2f}% | Rec={cm1[1,1]/88*100:.2f}% | FN={cm1[1,0]} | AUC={auc1:.2f}%")
-print(f"Modelo 2: Acc={accuracy_score(y_true, preds2)*100:.2f}% | Rec={cm2[1,1]/88*100:.2f}% | FN={cm2[1,0]} | AUC={auc2:.2f}%")
-print(f"Modelo 3: Acc={accuracy_score(y_true, preds3)*100:.2f}% | Rec={cm3[1,1]/88*100:.2f}% | FN={cm3[1,0]} | AUC={auc3:.2f}%")
+print(f"Modelo 1: Acc={accuracy_score(y_true, preds1)*100:.2f}% | Rec={cm1[1,1]/n_fight*100:.2f}% | FN={cm1[1,0]} | AUC={auc1:.2f}%")
+print(f"Modelo 2: Acc={accuracy_score(y_true, preds2)*100:.2f}% | Rec={cm2[1,1]/n_fight*100:.2f}% | FN={cm2[1,0]} | AUC={auc2:.2f}%")
+print(f"Modelo 3: Acc={accuracy_score(y_true, preds3)*100:.2f}% | Rec={cm3[1,1]/n_fight*100:.2f}% | FN={cm3[1,0]} | AUC={auc3:.2f}%")
 
 # ==========================================
 # FIGURA 1: MATRIZES DE CONFUSÃO LADO A LADO
 # ==========================================
 fig, axes = plt.subplots(1, 3, figsize=(16, 5), dpi=300)
+def cm_title(nome, cm, preds):
+    """Titulo com metricas calculadas na hora, nunca escritas a mao."""
+    acc = accuracy_score(y_true, preds) * 100
+    rec = cm[1, 1] / n_fight * 100
+    return f"{nome}\n(Acc: {acc:.2f}% | Rec: {rec:.2f}% | {cm[1, 0]} FN)"
+
+
 models_info = [
-    ("Modelo 1: Baseline Bi-GRU\n(Acc: 75.14% | Rec: 76.14% | 21 FN)", cm1, "#1f77b4"),
-    ("Modelo 2: Dual-Stream Latente\n(Acc: 82.16% | Rec: 88.64% | 10 FN)", cm2, "#ff7f0e"),
-    ("Modelo 3: Ensemble Cinético (SOTA)\n(Acc: 85.41% | Rec: 92.05% | APENAS 7 FN)", cm3, "#2ca02c")
+    (cm_title("Modelo 1: Baseline Bi-GRU", cm1, preds1), cm1, "#1f77b4"),
+    (cm_title("Modelo 2: Dual-Stream Latente", cm2, preds2), cm2, "#ff7f0e"),
+    (cm_title("Modelo 3: Ensemble Cinético", cm3, preds3), cm3, "#2ca02c")
 ]
 
 for idx, (title, cm, color) in enumerate(models_info):
@@ -228,7 +135,7 @@ fp3 = cm3[0, 1]
 tn3 = cm3[0, 0]
 opr_fpr = fp3 / (fp3 + tn3)
 opr_tpr = tp3 / (tp3 + fn3)
-ax.scatter([opr_fpr], [opr_tpr], color="#d62728", s=90, zorder=5, label=f"Ponto Calibrado M3 (θ=0.52, Rec={opr_tpr*100:.1f}%)")
+ax.scatter([opr_fpr], [opr_tpr], color="#d62728", s=90, zorder=5, label=f"M3 no limiar entregue (θ={DEFAULT_THRESHOLDS['ensemble']:.2f}, Rec={opr_tpr*100:.1f}%)")
 
 ax.set_xlim([0.0, 1.0])
 ax.set_ylim([0.0, 1.02])
@@ -255,13 +162,14 @@ fns = [cm1[1, 0], cm2[1, 0], cm3[1, 0]]
 colors_bar = ["#4a90e2", "#f5a623", "#27ae60"]
 bars = ax_a.bar(models_label, fns, color=colors_bar, width=0.55, edgecolor="#333333", linewidth=1)
 ax_a.set_title("(A) Falsos Negativos (Lutas Não Detectadas)", fontsize=12, fontweight="bold")
-ax_a.set_ylabel("Quantidade de Vídeos Perdidos (em 185)", fontsize=10)
-ax_a.set_ylim(0, 26)
+ax_a.set_ylabel(f"Vídeos perdidos (em {len(y_true)})", fontsize=10)
+ax_a.set_ylim(0, max(26, max(fns) * 1.2))
 for bar, fn in zip(bars, fns):
     yval = bar.get_height()
     ax_a.text(bar.get_x() + bar.get_width()/2.0, yval + 0.6, f"{fn} FN", ha="center", va="bottom", fontsize=11, fontweight="bold")
-ax_a.annotate("Redução de 66.7% nos FNs\n(Apenas 7 lutas perdidas!)",
-             xy=(2, 7), xytext=(1.0, 16),
+_reducao = (1 - fns[2] / fns[0]) * 100 if fns[0] else 0.0
+ax_a.annotate(f"Redução de {_reducao:.1f}% nos FN\n(melhor checkpoint: {fns[2]} FN)",
+             xy=(2, fns[2]), xytext=(1.0, 16),
              arrowprops=dict(arrowstyle="->", color="#c0392b", lw=2),
              fontsize=10, fontweight="bold", color="#c0392b",
              bbox=dict(boxstyle="round,pad=0.3", fc="#fdf2e9", ec="#e67e22", lw=1))
@@ -271,7 +179,7 @@ ax_a.grid(axis="y", alpha=0.3)
 ax_b = axes[0, 1]
 x_pos = np.arange(len(models_label))
 width = 0.3
-recalls = [cm1[1, 1]/88 * 100, cm2[1, 1]/88 * 100, cm3[1, 1]/88 * 100]
+recalls = [cm1[1, 1]/n_fight * 100, cm2[1, 1]/n_fight * 100, cm3[1, 1]/n_fight * 100]
 accuracies = [accuracy_score(y_true, preds1)*100, accuracy_score(y_true, preds2)*100, accuracy_score(y_true, preds3)*100]
 
 b1 = ax_b.bar(x_pos - width/2, accuracies, width, label="Acurácia Global (%)", color="#2980b9", edgecolor="#333333")
@@ -302,18 +210,36 @@ ax_c.grid(True, alpha=0.3)
 
 # Painel D: Latência em Edge AI e Throughput
 ax_d = axes[1, 1]
-lats = [69.21, 88.31, 73.29]
-bars_lat = ax_d.bar(models_label, lats, color=["#34495e", "#7f8c8d", "#16a085"], width=0.55, edgecolor="#333333")
-ax_d.set_title("(D) Latência End-to-End em CPU (16 Quadros 224x224)", fontsize=12, fontweight="bold")
-ax_d.set_ylabel("Tempo de Inferência (ms por clipe)", fontsize=10)
-ax_d.set_ylim(0, 105)
-for bar, lat in zip(bars_lat, lats):
-    yval = bar.get_height()
-    fps_equiv = 16000.0 / lat
-    ax_d.text(bar.get_x() + bar.get_width()/2.0, yval + 1.2, f"{lat:.1f} ms\n({fps_equiv:.0f} FPS equiv.)", ha="center", va="bottom", fontsize=9, fontweight="bold")
-ax_d.axhline(100, color="#e74c3c", linestyle=":", label="Limite Real-Time de Borda (100 ms)")
-ax_d.legend(loc="upper left", fontsize=9)
-ax_d.grid(axis="y", alpha=0.3)
+# Latencias lidas do benchmark unificado; nunca escritas a mao.
+# Gere com: python benchmarks/benchmark_detailed_latency.py
+LATENCY_JSON = "reports/latency_benchmark.json"
+if os.path.exists(LATENCY_JSON):
+    with open(LATENCY_JSON, encoding="utf-8") as f:
+        _lat = json.load(f)
+    lats = [m["forward_ms"] for m in _lat["models"]]
+    lat_note = f"medido em {(_lat['hardware']['processor'] or 'CPU')[:40]}"
+else:
+    lats = None
+    lat_note = "execute benchmarks/benchmark_detailed_latency.py"
+
+if lats is None:
+    ax_d.axis("off")
+    ax_d.set_title("(D) Latência em CPU — não medida", fontsize=12, fontweight="bold")
+    ax_d.text(0.5, 0.5, "Sem reports/latency_benchmark.json.\n" + lat_note,
+              ha="center", va="center", fontsize=10, transform=ax_d.transAxes)
+else:
+    bars_lat = ax_d.bar(models_label, lats, color=["#34495e", "#7f8c8d", "#16a085"],
+                        width=0.55, edgecolor="#333333")
+    ax_d.set_title(f"(D) Forward em CPU, 16 quadros 224x224\n({lat_note})",
+                   fontsize=11, fontweight="bold")
+    ax_d.set_ylabel("Tempo de forward (ms por clipe)", fontsize=10)
+    ax_d.set_ylim(0, max(105, max(lats) * 1.25))
+    for bar, lat in zip(bars_lat, lats):
+        ax_d.text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.2, f"{lat:.1f} ms",
+                  ha="center", va="bottom", fontsize=9, fontweight="bold")
+    ax_d.axhline(100, color="#e74c3c", linestyle=":", label="Orçamento de borda (100 ms)")
+    ax_d.legend(loc="upper left", fontsize=9)
+    ax_d.grid(axis="y", alpha=0.3)
 
 plt.tight_layout()
 plt.savefig("reports/jornada_evolutiva_3_modelos.png", bbox_inches="tight")

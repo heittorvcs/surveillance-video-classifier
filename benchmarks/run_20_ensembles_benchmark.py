@@ -1,83 +1,73 @@
+"""
+Treina pools de sementes e avalia 20 comites triplos formados SEM selecao.
+
+O objetivo deste benchmark e medir a distribuicao honesta do ensemble: os trios
+sao formados por uma regra fixa de sementes, nao escolhidos pelo desempenho no
+teste. E o contraste entre esta distribuicao e o "melhor checkpoint" que revela
+quanto do numero de vitrine vem de selecao.
+
+Pre-requisito: python src/build_cache.py
+"""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+import os
 import time
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import (
     accuracy_score,
-    precision_recall_fscore_support,
     confusion_matrix,
-    roc_auc_score
+    precision_recall_fscore_support,
+    roc_auc_score,
 )
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, TensorDataset
+
+from src.model import DualStream_MeanMax, TriStream_Kinetic
+from src.train import FlipAugmentedFeatures
 
 device = torch.device("cpu")
-train_feats, train_labels = torch.load("data/cache/features_train.pt", map_location=device)
-val_feats, val_labels = torch.load("data/cache/features_val.pt", map_location=device)
-test_feats, test_labels = torch.load("data/cache/features_test.pt", map_location=device)
-y_true = test_labels.numpy()
+CACHE_DIR = "data/cache"
+
+
+def load_cache(name):
+    path = os.path.join(CACHE_DIR, name)
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            "Cache de features ausente: " + path + " | Gere-o com: python src/build_cache.py"
+        )
+    feats, labels = torch.load(path, map_location="cpu")
+    return feats.to(device), labels.to(device)
+
+
+train_feats, train_labels = load_cache("features_train.pt")
+val_feats, val_labels = load_cache("features_val.pt")
+test_feats, test_labels = load_cache("features_test.pt")
+y_true = test_labels.detach().cpu().numpy()
+
+FLIP_PATH = os.path.join(CACHE_DIR, "features_train_flip.pt")
+if os.path.exists(FLIP_PATH):
+    _flip_feats, _ = torch.load(FLIP_PATH, map_location="cpu")
+    TRAIN_DATASET = FlipAugmentedFeatures(train_feats, _flip_feats.to(device), train_labels)
+    AUGMENT = True
+else:
+    TRAIN_DATASET = TensorDataset(train_feats, train_labels)
+    AUGMENT = False
 
 print(f"Caches carregados: Treino={len(train_labels)}, Val={len(val_labels)}, Teste={len(test_labels)}")
+print(f"Data augmentation: {'ativo' if AUGMENT else 'ausente'}")
 
-# 1. Definições das Arquiteturas do Ensemble
-class TriStream_Kinetic(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_vel = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_acc = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        total_feat_dim = (hidden_dim * 4) * 3
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(total_feat_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        feat_app = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        vel = x[:, 1:, :] - x[:, :-1, :]
-        out_vel, _ = self.gru_vel(vel)
-        feat_vel = torch.cat([out_vel.mean(dim=1), out_vel.max(dim=1).values], dim=1)
-        acc = vel[:, 1:, :] - vel[:, :-1, :]
-        out_acc, _ = self.gru_acc(acc)
-        feat_acc = torch.cat([out_acc.mean(dim=1), out_acc.max(dim=1).values], dim=1)
-        combined = torch.cat([feat_app, feat_vel, feat_acc], dim=1)
-        return self.classifier(combined)
-
-class DualStream_MeanMax(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_mot = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 8, 96),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(96, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        app_feat = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        diff = x[:, 1:, :] - x[:, :-1, :]
-        out_mot, _ = self.gru_mot(diff)
-        mot_feat = torch.cat([out_mot.mean(dim=1), out_mot.max(dim=1).values], dim=1)
-        combined = torch.cat([app_feat, mot_feat], dim=1)
-        return self.classifier(combined)
+# As arquiteturas vem de src/model.py — nenhuma redefinicao local.
 
 # 2. Função de Treinamento
 def train_model(model_cls, seed, fight_weight=1.35, max_epochs=25, patience=5):
@@ -85,7 +75,7 @@ def train_model(model_cls, seed, fight_weight=1.35, max_epochs=25, patience=5):
     np.random.seed(seed)
     
     model = model_cls().to(device)
-    train_loader = DataLoader(TensorDataset(train_feats, train_labels), batch_size=32, shuffle=True)
+    train_loader = DataLoader(TRAIN_DATASET, batch_size=32, shuffle=True)
     val_loader = DataLoader(TensorDataset(val_feats, val_labels), batch_size=32, shuffle=False)
     
     class_weights = torch.tensor([1.0, fight_weight], dtype=torch.float, device=device)
@@ -167,7 +157,10 @@ print(f"3. Avaliando 20 Ensembles Triplos Independentes (Limiar θ = 0.52)...")
 print("="*70)
 
 ensemble_records = []
-th = 0.52
+# ATENCAO: 0.52 e o limiar herdado da selecao original feita sobre o teste.
+# Para uma leitura nao enviesada, calibre na validacao com
+# src/calibrate_threshold.py e passe o valor obtido em THRESHOLD.
+th = float(os.environ.get("ENSEMBLE_THRESHOLD", 0.52))
 
 for k in range(1, NUM_RUNS + 1):
     # Seleção dos 3 membros com diversidade de sementes

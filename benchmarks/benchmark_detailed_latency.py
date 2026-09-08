@@ -1,172 +1,201 @@
+"""
+Perfil de latencia em CPU dos tres modelos, medidos sob o MESMO protocolo.
+
+A tabela anterior do README misturava medicoes feitas em execucoes distintas, o
+que produziu o resultado incoerente de o ensemble (backbone + 3 cabecas) aparecer
+mais rapido que o dual-stream (backbone + 2 GRUs). Aqui os tres passam pelo mesmo
+laco, na mesma maquina, na mesma execucao, e o custo de decodificacao do video e
+medido separadamente em vez de omitido.
+
+Saida: reports/latency_benchmark.json e uma tabela no terminal.
+
+Uso:
+    python benchmarks/benchmark_detailed_latency.py
+    python benchmarks/benchmark_detailed_latency.py --runs 50 --video sample_video.avi
+"""
+
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+import argparse
+import json
 import os
+import platform
 import time
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 
-# 1. Carregar Backbone
-weights_base = MobileNet_V3_Small_Weights.DEFAULT
-base = mobilenet_v3_small(weights=weights_base)
-backbone = base.features.eval()
-avgpool = nn.AdaptiveAvgPool2d((1, 1)).eval()
+from src.dataset import frames_to_tensor, sample_frames
+from src.model import (
+    BiGRU_Head,
+    DualStream_Head,
+    load_ensemble_head,
+)
 
-# 2. Carregar as 3 cabeças
-class TriStream_Kinetic(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_vel = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_acc = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        total_feat_dim = (hidden_dim * 4) * 3
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(total_feat_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        feat_app = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        vel = x[:, 1:, :] - x[:, :-1, :]
-        out_vel, _ = self.gru_vel(vel)
-        feat_vel = torch.cat([out_vel.mean(dim=1), out_vel.max(dim=1).values], dim=1)
-        acc = vel[:, 1:, :] - vel[:, :-1, :]
-        out_acc, _ = self.gru_acc(acc)
-        feat_acc = torch.cat([out_acc.mean(dim=1), out_acc.max(dim=1).values], dim=1)
-        combined = torch.cat([feat_app, feat_vel, feat_acc], dim=1)
-        return self.classifier(combined)
 
-class DualStream_MeanMax(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_mot = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 8, 96),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(96, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        app_feat = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        diff = x[:, 1:, :] - x[:, :-1, :]
-        out_mot, _ = self.gru_mot(diff)
-        mot_feat = torch.cat([out_mot.mean(dim=1), out_mot.max(dim=1).values], dim=1)
-        combined = torch.cat([app_feat, mot_feat], dim=1)
-        return self.classifier(combined)
+def hardware_profile():
+    """Contexto da medicao: numeros de latencia sem isso nao sao comparaveis."""
+    return {
+        "platform": platform.platform(),
+        "processor": platform.processor() or "desconhecido",
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "torch_threads": torch.get_num_threads(),
+        "cpu_count": os.cpu_count(),
+    }
 
-class BiGRU_Baseline(nn.Module):
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 2, num_classes)
-        )
-    def forward(self, x):
-        out, _ = self.gru(x)
-        return self.classifier(out.mean(dim=1))
 
-def resolve_path(filename, subfolders):
-    for sub in subfolders:
-        full = os.path.join(sub, filename)
-        if os.path.exists(full):
-            return full
-    raise FileNotFoundError(f"Pesos não encontrados para: {filename}")
+def timeit(fn, runs, warmup=5):
+    """Retorna (media, desvio, p95) em milissegundos."""
+    for _ in range(warmup):
+        fn()
+    samples = []
+    for _ in range(runs):
+        t0 = time.perf_counter()
+        fn()
+        samples.append((time.perf_counter() - t0) * 1000)
+    arr = np.array(samples)
+    return float(arr.mean()), float(arr.std(ddof=1)) if len(arr) > 1 else 0.0, float(np.percentile(arr, 95))
 
-ens_subs = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
 
-m1 = TriStream_Kinetic().eval()
-m1.load_state_dict(torch.load(resolve_path("model_tristream_s7.pth", ens_subs), map_location="cpu"))
+def count_params(*modules):
+    return sum(p.numel() for m in modules for p in m.parameters())
 
-m2 = DualStream_MeanMax().eval()
-m2.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s5.pth", ens_subs), map_location="cpu"))
 
-m3 = DualStream_MeanMax().eval()
-m3.load_state_dict(torch.load(resolve_path("model_dualmeanmax_s10.pth", ens_subs), map_location="cpu"))
+def main():
+    parser = argparse.ArgumentParser(description="Perfil de latencia em CPU sob protocolo unico")
+    parser.add_argument("--runs", type=int, default=30, help="Repeticoes cronometradas por medicao")
+    parser.add_argument("--video", type=str, default="sample_video.avi",
+                        help="Video real usado para medir a decodificacao")
+    parser.add_argument("--save_json", type=str, default="reports/latency_benchmark.json")
+    args = parser.parse_args()
 
-m_base = BiGRU_Baseline().eval()
+    torch.set_grad_enabled(False)
+    device = torch.device("cpu")
 
-dummy_video = torch.randn(1, 16, 3, 224, 224)
+    hw = hardware_profile()
+    print("=" * 72)
+    print("PERFIL DE LATENCIA EM CPU - PROTOCOLO UNICO")
+    print("=" * 72)
+    for k, v in hw.items():
+        print(f"  {k:16s} {v}")
+    print(f"  {'runs':16s} {args.runs} (warmup 5)")
+    print("=" * 72)
 
-# Aquecimento
-with torch.no_grad():
-    for _ in range(5):
+    base = mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.DEFAULT)
+    backbone = base.features.to(device).eval()
+    avgpool = nn.AdaptiveAvgPool2d((1, 1)).to(device).eval()
+
+    heads = {}
+
+    m_base = BiGRU_Head().to(device).eval()
+    baseline_ckpt = "models/best_model.pth"
+    if os.path.exists(baseline_ckpt):
+        state = torch.load(baseline_ckpt, map_location=device)
+        m_base.load_state_dict({k: v for k, v in state.items() if not k.startswith("features.")})
+    heads["Modelo 1: Baseline"] = m_base
+
+    m_dual = DualStream_Head().to(device).eval()
+    dual_ckpt = "models/model_dualstream_best.pth"
+    if os.path.exists(dual_ckpt):
+        m_dual.load_state_dict(torch.load(dual_ckpt, map_location=device))
+    heads["Modelo 2: Dual-Stream"] = m_dual
+
+    try:
+        heads["Modelo 3: Ensemble"] = load_ensemble_head(device=device)
+    except FileNotFoundError as exc:
+        print(f"AVISO: ensemble indisponivel ({exc}); seguindo sem ele.")
+
+    dummy_video = torch.randn(1, 16, 3, 224, 224, device=device)
+
+    def run_backbone():
         b, t, c, h, w = dummy_video.shape
         x = dummy_video.view(b * t, c, h, w)
-        feat = avgpool(backbone(x)).flatten(1).view(b, t, -1)
-        _ = m_base(feat)
-        _ = (m1(feat) + m2(feat) + m3(feat)) / 3.0
+        return avgpool(backbone(x)).flatten(1).view(b, t, -1)
 
-N = 30
+    # 1) Decodificacao + pre-processamento de um video real
+    decode_ms = decode_std = decode_p95 = None
+    if os.path.exists(args.video):
+        def run_decode():
+            frames = sample_frames(args.video, 16)
+            return frames_to_tensor(frames, 16)
+        decode_ms, decode_std, decode_p95 = timeit(run_decode, args.runs)
+        print(f"\nDecodificacao + pre-proc ({args.video}): "
+              f"{decode_ms:.2f} +- {decode_std:.2f} ms (p95 {decode_p95:.2f})")
+    else:
+        print(f"\nAVISO: '{args.video}' nao encontrado; decodificacao nao medida.")
 
-# 1. Medir Backbone Isolado
-backbone_lats = []
-with torch.no_grad():
-    for _ in range(N):
-        t0 = time.perf_counter()
-        b, t, c, h, w = dummy_video.shape
-        x = dummy_video.view(b * t, c, h, w)
-        feat = avgpool(backbone(x)).flatten(1).view(b, t, -1)
-        backbone_lats.append((time.perf_counter() - t0) * 1000)
+    # 2) Backbone isolado (compartilhado por todos os modelos)
+    backbone_ms, backbone_std, backbone_p95 = timeit(run_backbone, args.runs)
+    backbone_params = count_params(backbone)
+    print(f"Backbone MobileNetV3-Small (16 quadros): "
+          f"{backbone_ms:.2f} +- {backbone_std:.2f} ms (p95 {backbone_p95:.2f})")
 
-# 2. Medir Cabeca Baseline
-base_lats = []
-with torch.no_grad():
-    for _ in range(N):
-        t0 = time.perf_counter()
-        _ = m_base(feat)
-        base_lats.append((time.perf_counter() - t0) * 1000)
+    feat = run_backbone()
 
-# 3. Medir Cabeças do Ensemble (as 3 juntas sobre a feature ja extraída)
-heads_lats = []
-with torch.no_grad():
-    for _ in range(N):
-        t0 = time.perf_counter()
-        p1 = torch.softmax(m1(feat), dim=1)
-        p2 = torch.softmax(m2(feat), dim=1)
-        p3 = torch.softmax(m3(feat), dim=1)
-        p_ens = (p1 + p2 + p3) / 3.0
-        heads_lats.append((time.perf_counter() - t0) * 1000)
+    rows = []
+    for name, head in heads.items():
+        head_ms, head_std, _ = timeit(lambda h=head: h(feat), args.runs)
 
-# 4. Medir End-to-End Total (Vídeo 16 frames -> Predição Final)
-total_lats = []
-with torch.no_grad():
-    for _ in range(N):
-        t0 = time.perf_counter()
-        b, t, c, h, w = dummy_video.shape
-        x = dummy_video.view(b * t, c, h, w)
-        feat = avgpool(backbone(x)).flatten(1).view(b, t, -1)
-        p1 = torch.softmax(m1(feat), dim=1)
-        p2 = torch.softmax(m2(feat), dim=1)
-        p3 = torch.softmax(m3(feat), dim=1)
-        p_ens = (p1 + p2 + p3) / 3.0
-        total_lats.append((time.perf_counter() - t0) * 1000)
+        def run_e2e(h=head):
+            b, t, c, h_, w = dummy_video.shape
+            x = dummy_video.view(b * t, c, h_, w)
+            f = avgpool(backbone(x)).flatten(1).view(b, t, -1)
+            return h(f)
 
-print("="*65)
-print("DECOMPOSICAO DETALHADA DE LATENCIA (CPU)")
-print("="*65)
-print(f"1. Backbone MobileNetV3-Small (16 frames 224x224): {np.mean(backbone_lats):.2f} ms")
-print(f"2. Cabeça Baseline (1 Bi-GRU simples):            {np.mean(base_lats):.2f} ms")
-print(f"3. Cabeças do Ensemble 85% (3 modelos juntos):     {np.mean(heads_lats):.2f} ms")
-print(f"4. Pipeline End-to-End Baseline (75.14% Acc):       {np.mean(backbone_lats) + np.mean(base_lats):.2f} ms")
-print(f"5. Pipeline End-to-End Ensemble 85% (85.41% Acc):   {np.mean(total_lats):.2f} ms")
-print(f"   - Latência P95:                                  {np.percentile(total_lats, 95):.2f} ms")
-print(f"   - Throughput:                                    {1000.0/np.mean(total_lats):.2f} vídeos/s ({16000.0/np.mean(total_lats):.1f} FPS equivalente)")
-print("="*65)
+        e2e_ms, e2e_std, e2e_p95 = timeit(run_e2e, args.runs)
+        params = backbone_params + count_params(head)
 
+        rows.append({
+            "model": name,
+            "params_total": params,
+            "params_head": count_params(head),
+            "head_ms": head_ms,
+            "head_std": head_std,
+            "forward_ms": e2e_ms,
+            "forward_std": e2e_std,
+            "forward_p95": e2e_p95,
+            "with_decode_ms": (e2e_ms + decode_ms) if decode_ms else None,
+        })
+
+    print("\n" + "=" * 96)
+    print(f"{'Modelo':24s} {'Params':>10s} {'Cabeca(ms)':>12s} {'Forward(ms)':>14s} "
+          f"{'p95(ms)':>10s} {'+decode(ms)':>13s} {'clipes/s':>10s}")
+    print("-" * 96)
+    for r in rows:
+        total = r["with_decode_ms"] or r["forward_ms"]
+        print(f"{r['model']:24s} {r['params_total']/1e6:9.2f}M "
+              f"{r['head_ms']:11.2f} {r['forward_ms']:13.2f} {r['forward_p95']:10.2f} "
+              f"{(r['with_decode_ms'] if r['with_decode_ms'] else float('nan')):13.2f} "
+              f"{1000.0/total:10.1f}")
+    print("=" * 96)
+    print("Forward = backbone + cabeca, sobre tensor sintetico (sem I/O).")
+    print("+decode = forward + decodificacao/pre-processamento de um clipe real.")
+    print("Valores dependem do hardware acima; regenere na maquina alvo antes de citar.\n")
+
+    payload = {
+        "hardware": hw,
+        "runs": args.runs,
+        "decode_ms": decode_ms,
+        "decode_p95_ms": decode_p95,
+        "backbone_ms": backbone_ms,
+        "backbone_p95_ms": backbone_p95,
+        "models": rows,
+    }
+    os.makedirs(os.path.dirname(args.save_json) or ".", exist_ok=True)
+    with open(args.save_json, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    print(f"Resultado salvo em: {args.save_json}")
+
+
+if __name__ == "__main__":
+    main()

@@ -21,89 +21,52 @@ from sklearn.metrics import (
 )
 import matplotlib.pyplot as plt
 
+from src.model import BiGRU_Head, DualStream_Head, TriStream_Kinetic
+from src.train import FlipAugmentedFeatures
+
 # Dispositivo
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+CACHE_DIR = "data/cache"
+
+
+def load_cache(name):
+    path = os.path.join(CACHE_DIR, name)
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Cache de features ausente: {path}\n"
+            f"Gere-o com: python src/build_cache.py"
+        )
+    feats, labels = torch.load(path, map_location="cpu")
+    return feats.to(device), labels.to(device)
+
+
 # Carregar caches de features
-train_feats, train_labels = torch.load("data/cache/features_train.pt", map_location=device)
-val_feats, val_labels = torch.load("data/cache/features_val.pt", map_location=device)
-test_feats, test_labels = torch.load("data/cache/features_test.pt", map_location=device)
-y_true = test_labels.numpy()
+train_feats, train_labels = load_cache("features_train.pt")
+val_feats, val_labels = load_cache("features_val.pt")
+test_feats, test_labels = load_cache("features_test.pt")
+y_true = test_labels.detach().cpu().numpy()
+
+# Data augmentation: mesmo protocolo de src/train.py (flip sorteado por época)
+FLIP_PATH = os.path.join(CACHE_DIR, "features_train_flip.pt")
+if os.path.exists(FLIP_PATH):
+    _flip_feats, _ = torch.load(FLIP_PATH, map_location="cpu")
+    TRAIN_DATASET = FlipAugmentedFeatures(train_feats, _flip_feats.to(device), train_labels)
+    AUGMENT = True
+else:
+    TRAIN_DATASET = TensorDataset(train_feats, train_labels)
+    AUGMENT = False
 
 print(f"Caches carregados: Treino={len(train_labels)}, Val={len(val_labels)}, Teste={len(test_labels)}")
-print(f"Dispositivo de Execução: {device}")
+print(f"Dispositivo de Execução: {device} | Data augmentation: {'ativo' if AUGMENT else 'ausente'}")
 
 # ==============================================================================
-# 1. Definições das 3 Arquiteturas da Jornada
+# 1. Arquiteturas — importadas de src/model.py (fonte única, sem redefinição)
 # ==============================================================================
 
-class Model1_Baseline_BiGRU(nn.Module):
-    """Modelo 1: Baseline Minimalista (Aparência Estática f_t)"""
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 2, num_classes)
-        )
-    def forward(self, x):
-        out, _ = self.gru(x)
-        return self.classifier(out.mean(dim=1))
-
-class Model2_DualStream_Latente(nn.Module):
-    """Modelo 2: Dual-Stream Latente (Aparência f_t + Velocidade Δf_t)"""
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_mot = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim * 4, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        app_feat = out_app.mean(dim=1)
-        diff = x[:, 1:, :] - x[:, :-1, :]
-        out_mot, _ = self.gru_mot(diff)
-        mot_feat = out_mot.mean(dim=1)
-        combined = torch.cat([app_feat, mot_feat], dim=1)
-        return self.classifier(combined)
-
-class Model3_TriStream_Cinetico(nn.Module):
-    """Modelo 3: Tri-Stream Cinético (Aparência f_t + Velocidade Δf_t + Aceleração Δ²f_t)"""
-    def __init__(self, feature_dim=576, hidden_dim=64, num_classes=2):
-        super().__init__()
-        self.gru_app = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_vel = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        self.gru_acc = nn.GRU(feature_dim, hidden_dim, batch_first=True, bidirectional=True)
-        total_feat_dim = (hidden_dim * 4) * 3  # (hidden*2 * 2 [mean+max]) * 3 streams = 768
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(total_feat_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-    def forward(self, x):
-        out_app, _ = self.gru_app(x)
-        feat_app = torch.cat([out_app.mean(dim=1), out_app.max(dim=1).values], dim=1)
-        
-        vel = x[:, 1:, :] - x[:, :-1, :]
-        out_vel, _ = self.gru_vel(vel)
-        feat_vel = torch.cat([out_vel.mean(dim=1), out_vel.max(dim=1).values], dim=1)
-        
-        acc = vel[:, 1:, :] - vel[:, :-1, :]
-        out_acc, _ = self.gru_acc(acc)
-        feat_acc = torch.cat([out_acc.mean(dim=1), out_acc.max(dim=1).values], dim=1)
-        
-        combined = torch.cat([feat_app, feat_vel, feat_acc], dim=1)
-        return self.classifier(combined)
+Model1_Baseline_BiGRU = BiGRU_Head          # Aparência estática f_t
+Model2_DualStream_Latente = DualStream_Head  # f_t + velocidade Δf_t
+Model3_TriStream_Cinetico = TriStream_Kinetic  # f_t + Δf_t + aceleração Δ²f_t
 
 # ==============================================================================
 # 2. Protocolo de Treinamento e Avaliação Padronizado
@@ -114,7 +77,7 @@ def train_and_eval_single_run(model_cls, seed, fight_weight=1.35, max_epochs=25,
     np.random.seed(seed)
     
     model = model_cls().to(device)
-    train_loader = DataLoader(TensorDataset(train_feats, train_labels), batch_size=32, shuffle=True)
+    train_loader = DataLoader(TRAIN_DATASET, batch_size=32, shuffle=True)
     val_loader = DataLoader(TensorDataset(val_feats, val_labels), batch_size=32, shuffle=False)
     
     class_weights = torch.tensor([1.0, fight_weight], dtype=torch.float, device=device)
