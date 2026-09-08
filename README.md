@@ -7,66 +7,32 @@
 [![Recall Fight](https://img.shields.io/badge/Recall%20Fight-92.05%25-success.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Solução de Visão Computacional e Aprendizado Profundo para Segurança Patrimonial e Urbana (*Edge AI*):** Detecção proativa e em tempo real de brigas e agressões corporais em câmeras de monitoramento estáticas (CFTV), estruturada sobre uma jornada evolutiva de viés indutivo cinético que elevou a acurácia de **75.14%** para **85.41%** e reduziu os Falsos Negativos em **66,7%** (apenas 7 incidentes perdidos em 185 vídeos de teste).
+> **Solução de Visão Computacional e Aprendizado Profundo para Segurança Patrimonial e Urbana (*Edge AI*):** Detecção em tempo real de brigas e agressões corporais em câmeras de monitoramento estáticas (CFTV), por meio de otimização de parametros e seleção de modelos saimos de **75.14%** para **85.41%** e reduzimos os Falsos Negativos em **66,7%** (apenas 7 incidentes perdidos em 185 vídeos de teste).
 
 ---
 
-## 📹 Vídeo de Apresentação Técnica
-> **Link do Vídeo (YouTube / Loom / Drive):** `[INSERIR_LINK_DO_VIDEO_AQUI]`  
-*(Apresentação executiva de 6 a 8 minutos cobrindo a formulação do problema de negócio, rigor anti-leakage por câmera, a jornada dos 3 modelos, inovação cinética latente e demonstração ao vivo de inferência em CPU).*  
-*O roteiro e direcionamento de gravação detalhado minuto a minuto encontra-se em [pitch_strategy_and_script.md](pitch_strategy_and_script.md).*
+## Vídeo de Apresentação Técnica
+> **Link do Vídeo (YouTube):** `[INSERIR_LINK_DO_VIDEO_AQUI]`  
 
 ---
 
-## 🖼️ Demonstração Prática de Inferência Operacional
+## Demonstração Prática de Inferência Operacional
 Visualização dos 16 quadros temporais amostrados uniformemente do vídeo de demonstração (`sample_video.avi`) e submetidos ao classificador com inferência em tempo real:
 
 ![Mosaico de Predição Prática](reports/sample_prediction_mosaic.png)
 
 ---
 
-## 📌 Sumário
-1. [Visão Geral e Contexto do Problema de Negócio](#1-visão-geral-e-contexto-do-problema-de-negócio)
-2. [Dataset RWF-2000 e Partição Anti-Leakage Estrita](#2-dataset-rwf-2000-e-partição-anti-leakage-estrita)
-3. [Decisões de Pré-processamento e Engenharia](#3-decisões-de-pré-processamento-e-engenharia)
-4. [A Jornada Evolutiva dos 3 Modelos](#4-a-jornada-evolutiva-dos-3-modelos)
-5. [Tabela Comparativa Oficial e Definitiva](#5-tabela-comparativa-oficial-e-definitiva)
-6. [Validação Estatística: 20 Execuções por Modelo (60 Treinos)](#6-validação-estatística-20-execuções-por-modelo-60-treinos)
-7. [O Segredo Físico: Da Aparência Estática à Aceleração Cinética](#7-o-segredo-físico-da-aparência-estática-à-aceleração-cinética)
-8. [Matrizes de Confusão e Curvas ROC Lado a Lado](#8-matrizes-de-confusão-e-curvas-roc-lado-a-lado)
-9. [Perfil de Edge AI, Latência Real em CPU e Produção](#9-perfil-de-edge-ai-latência-real-em-cpu-e-produção)
-10. [Engenharia de Limiares e Políticas de Segurança](#10-engenharia-de-limiares-e-políticas-de-segurança)
-11. [Estrutura Consolidada do Repositório](#11-estrutura-consolidada-do-repositório)
-12. [Guia de Reprodução Rápida (CLI)](#12-guia-de-reprodução-rápida-cli)
-13. [Análise Crítica e Conclusão](#13-análise-crítica-e-conclusão)
+## 1. Dataset RWF-2000 e Anti-Leakage
 
----
-
-## 1. Visão Geral e Contexto do Problema de Negócio
-
-Centrais de videomonitoramento patrimonial e público (CFTV) gerenciam centenas de fluxos simultâneos de vídeo. A supervisão puramente humana é inerentemente vulnerável à **fadiga cognitiva**: após 20 minutos de observação contínua, operadores humanos perdem até 95% dos eventos críticos de segurança.
-
-Este projeto entrega um classificador de **Edge AI** capaz de processar clipes de 5 segundos de forma automatizada e alertar centrais sobre:
-* **`Fight` (Violência Física):** Socos, chutes, empurrões, imobilizações e lutas corporais.
-* **`NonFight` (Atividades Normais):** Caminhadas, pessoas conversando, aglomerações pacíficas, tráfego de veículos e abraços.
-
-### O Custo Crítico do Negócio: O Imperativo do Recall
-Em segurança predial e urbana, o custo de um **Falso Negativo (FN)** — uma briga violenta que ocorre sem ser detectada pelo sistema — pode resultar em lesão corporal grave, homicídio ou danos materiais severos. Já um **Falso Positivo (FP)** representa apenas um alarme falso facilmente descartado pelo operador com uma rápida checagem visual. 
-
-Portanto, a diretriz prioritária de engenharia deste projeto foi maximizar a sensibilidade (**Recall da classe Fight**) e reduzir as brigas perdidas ao mínimo estatístico possível, mantendo a precisão equilibrada e latência sub-100 ms em hardware comum.
-
----
-
-## 2. Dataset RWF-2000 e Partição Anti-Leakage Estrita
-
-Utilizou-se o dataset benchmark **RWF-2000 (Real World Fight 2000)** (Cheng et al., 2020), composto por 2.000 gravações reais de câmeras de vigilância estáticas fixadas em vias públicas e ambientes comerciais:
+Utilizou-se o dataset **RWF-2000 (Real World Fight 2000)** (Cheng et al., 2020), composto por 2.000 gravações reais de câmeras de vigilância, com isso obtivemos:
 * **Padronização:** Vídeos de 5 segundos a 30 FPS (150 frames por vídeo).
 * **Distribuição:** 100% balanceado na origem (1.000 vídeos `Fight` e 1.000 vídeos `NonFight`).
 
-### Mitigação Rigorosa de Data Leakage (Group Split por Câmera)
-No RWF-2000, múltiplos clipes foram gerados a partir de cortes de uma mesma câmera física em um mesmo dia, compartilhando idêntico cenário de fundo, luminosidade e ângulo de visão. Uma divisão aleatória ingênua (*random train/test split*) provocaria um **vazamento de dados (data leakage)** catastrófico: o modelo atingiria métricas artificialmente infladas apenas por reconhecer o cenário de fundo familiar, falhando miseravelmente ao ser instalado em uma câmera nova.
+### Tratamento Anti-Leakage
+No RWF-2000, varios clipes foram gerados a partir de cortes de uma mesma câmera física em um mesmo dia, compartilhando o mesmo cenário de fundo, luminosidade e ângulo de visão. Uma divisão aleatória provocaria um vazamento de dados (data leakage): o modelo atingiria métricas infladas apenas por reconhecer o cenário de fundo familiar, falhando ao ser instalado em uma câmera nova.
 
-Para garantir validade científica e operacional em produção, implementou-se em [`src/create_splits.py`](src/create_splits.py) uma separação estrita por grupos de câmeras (`GroupShuffleSplit` baseado no identificador físico do vídeo):
+Para evitar isso implementei o [`src/create_splits.py`](src/create_splits.py) uma separação por grupos de câmeras (`GroupShuffleSplit` baseado no identificador físico do vídeo):
 
 | Conjunto | Quantidade de Vídeos | Vídeos Fight | Vídeos NonFight | Isolamento de Câmeras |
 | :--- | :---: | :---: | :---: | :--- |
@@ -78,7 +44,7 @@ Para garantir validade científica e operacional em produção, implementou-se e
 
 ---
 
-## 3. Decisões de Pré-processamento e Engenharia
+## 2. Decisões de Pré-processamento e Engenharia
 
 1. **Amostragem Temporal Equidistante ($N = 16$ quadros):**  
    A 30 FPS, quadros consecutivos exibem correlação espacial acima de 98%. Selecionar 16 quadros uniformemente espaçados reduz o volume de dados em **89,3%**, preservando a trajetória cinemática completa da ação com custo computacional mínimo.
@@ -91,7 +57,7 @@ Para garantir validade científica e operacional em produção, implementou-se e
 
 ---
 
-## 4. A Jornada Evolutiva dos 3 Modelos
+## 3. A Jornada Evolutiva dos 3 Modelos
 
 Para superar as limitações das abordagens triviais (que ficavam estagnadas entre 73% e 75%), o projeto foi conduzido através de uma jornada estruturada em 3 saltos arquiteturais e conceituais:
 
@@ -160,7 +126,7 @@ graph LR
 
 ---
 
-## 5. Tabela Comparativa Oficial e Definitiva
+## 4. Tabela Comparativa Oficial e Definitiva
 
 Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial (185 vídeos não vistos, sendo 88 `Fight` e 97 `NonFight`):
 
@@ -183,7 +149,7 @@ Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial 
 
 ---
 
-## 6. Validação Estatística: 20 Execuções por Arquitetura (60 Treinamentos)
+## 5. Validação Estatística: 20 Execuções por Arquitetura (60 Treinamentos)
 
 Para comprovar formalmente que os ganhos de acurácia e recall **não decorrem de uma semente aleatória de sorte (*seed mining*)**, executou-se um protocolo experimental padronizado:
 * **20 sementes aleatórias independentes** (Seed 1 a 20) treinadas do zero para **cada uma das 3 arquiteturas** (totalizando 60 treinamentos supervisionados completos).
@@ -222,7 +188,7 @@ A dinâmica de convergência foi rigorosamente monitorada para assegurar equilí
 
 ---
 
-## 7. O Segredo Físico: Da Aparência Estática à Aceleração Cinética
+## 6. O Segredo Físico: Da Aparência Estática à Aceleração Cinética
 
 Por que as tentativas convencionais de ajuste fino (*fine-tuning*) e redes 1D falhavam em ultrapassar 75%? Porque **violência física é um fenômeno essencialmente cinético**, não estático. 
 
@@ -290,7 +256,7 @@ $$\Delta^2 f_t = \Delta f_t - \Delta f_{t-1} \quad (\text{Aceleração Cinética
 
 ---
 
-## 8. Matrizes de Confusão e Curvas ROC Lado a Lado
+## 7. Matrizes de Confusão e Curvas ROC Lado a Lado
 
 O salto qualitativo da jornada evolutiva fica evidente na comparação direta das matrizes de confusão e curvas ROC obtidas no teste cego oficial:
 
@@ -314,7 +280,7 @@ A área sob a curva ROC (AUC) expande consistentemente em cada iteração:
 
 ---
 
-## 9. Perfil de Edge AI, Latência Real em CPU e Produção
+## 8. Perfil de Edge AI, Latência Real em CPU e Produção
 
 Para validar a viabilidade de implantação em servidores locais (*on-premises*) e microcomputadores industriais sem GPU dedicada (ex: Raspberry Pi 5, Intel NUC, Jetson Nano), realizou-se uma decomposição de latência de inferência rodando em CPU comum (processando os 16 quadros $224 \times 224$ de ponta a ponta):
 
@@ -338,7 +304,7 @@ O modelo foi exportado com sucesso para ONNX com grafos estáticos otimizados:
 
 ---
 
-## 10. Engenharia de Limiares e Políticas de Segurança
+## 9. Engenharia de Limiares e Políticas de Segurança
 
 A probabilidade bruta de saída não deve ser tratada como uma "caixa preta" engessada em $\theta = 0.50$. Conforme o perfil e o nível de risco da operação, o limiar de decisão operacional pode ser calibrado:
 
@@ -348,69 +314,10 @@ A probabilidade bruta de saída não deve ser tratada como uma "caixa preta" eng
 | **Equilíbrio Calibrado (SOTA)** | **$\theta = 0.52$** | **92.05%** | **80.20%** | **7 lutas perdidas** | **CFTV Urbano e Patrimonial Padrão** |
 | **Filtro Estrito Antialarme Falso**| $\theta = 0.65$ | 82.95% | **88.00%** | 15 lutas perdidas | Centrais com equipe humana reduzida |
 
----
-
-## 11. Estrutura Consolidada do Repositório
-
-```text
-surveillance-video-classifier/
-├── data/
-│   ├── splits/
-│   │   ├── train.csv                      # Partição de treino anti-leakage (1.600 vídeos)
-│   │   ├── val.csv                        # Partição de validação (215 vídeos)
-│   │   └── test.csv                       # Partição do teste cego (185 vídeos inéditos)
-│   └── cache/
-│       ├── features_train.pt              # Cache de features do MobileNetV3 (Treino)
-│       ├── features_val.pt                # Cache de features do MobileNetV3 (Validação)
-│       └── features_test.pt               # Cache de features do MobileNetV3 (Teste)
-├── models/
-│   ├── best_model.pth                     # Checkpoint Modelo 1: Baseline Bi-GRU (75.14% Acc)
-│   ├── model.onnx                         # Grafo ONNX do Baseline
-│   ├── best_model_dualstream_82acc.pth    # Checkpoint Modelo 2: Dual-Stream Latente (82.16% Acc)
-│   ├── model_dualstream_best.pth          # Cabeça Dual-Stream isolada
-│   ├── model_dualstream.onnx              # Grafo ONNX do Dual-Stream Latente (406 KB)
-│   ├── model_dualstream.onnx.data         # Tensores de pesos ONNX
-│   └── ensemble/                          # Checkpoints Oficiais do Modelo 3 (SOTA 85.41% Acc)
-│       ├── model_tristream_s7.pth         # TriStream Cinético com Aceleração Δ²f (Seed 7)
-│       ├── model_dualmeanmax_s5.pth       # DualStream Mean+Max Pooling (Seed 5)
-│       └── model_dualmeanmax_s10.pth      # DualStream Mean+Max Pooling (Seed 10)
-├── benchmarks/
-│   ├── benchmark_3_modelos_20_runs.py     # Script de reprodução das 20 runs por modelo (60 treinos)
-│   ├── run_20_ensembles_benchmark.py      # Script de avaliação dos 20 comitês de ensemble
-│   └── benchmark_detailed_latency.py      # Decomposição de latência real em CPU
-├── reports/
-│   ├── sample_prediction_mosaic.png       # Mosaico de 16 quadros com predição real
-│   ├── matrizes_confusao_3_modelos.png    # Matrizes de confusão dos 3 modelos lado a lado
-│   ├── curvas_roc_3_modelos.png           # Curvas ROC comparativas dos 3 modelos
-│   ├── jornada_evolutiva_3_modelos.png    # Dashboard consolidado da evolução (4 painéis)
-│   ├── benchmark_3_modelos_20_runs_boxplots.png # Boxplots oficiais das distribuições de 20 runs
-│   ├── benchmark_3_modelos_20_runs_sumario.csv  # Tabela resumo estatístico de 20 runs
-│   ├── benchmark_3_modelos_20_runs_detalhes.csv # Métricas individuais das 60 execuções
-│   ├── benchmark_20_ensembles_detalhes.csv      # Métricas dos 20 comitês de ensemble
-│   ├── test_metrics.json                  # Métricas auditadas do Baseline
-│   ├── test_metrics_dualstream_82acc.json # Métricas auditadas do Dual-Stream
-│   ├── test_metrics_85acc.json            # Métricas auditadas do Ensemble
-│   ├── generate_evolution_charts.py       # Gerador oficial de gráficos comparativos
-│   └── plot_4_distributions_boxplots.py   # Gerador oficial dos boxplots de 20 runs
-├── src/
-│   ├── __init__.py
-│   ├── create_splits.py                   # Split anti-leakage com GroupShuffleSplit
-│   ├── dataset.py                         # Dataset PyTorch com decodificação cv2.grab()
-│   ├── model.py                           # Arquiteturas: Baseline, DualStream e Ensemble TriStream
-│   ├── train.py                           # Pipeline de treino supervisionado com early stopping
-│   ├── evaluate.py                        # Avaliação oficial CLI com suporte a --model e --threshold
-│   └── inference.py                       # Inferência operacional CLI em novos vídeos
-├── legacy_experiments/                    # (Ignorado no .gitignore) Experimentos exploratórios legados
-├── sample_video.avi                       # Vídeo de demonstração prático (~1.3 MB)
-├── pitch_strategy_and_script.md           # Roteiro minuto a minuto para o vídeo de apresentação
-├── requirements.txt                       # Dependências essenciais do projeto
-├── .gitignore                             # Regras de exclusão de artefatos pesados e temporários
-└── README.md                              # Documentação técnica oficial e definitiva
-```
 
 ---
 
-## 12. Guia de Reprodução Rápida (CLI)
+## 10. Guia de Reprodução Rápida (CLI)
 
 ### 1. Clonagem e Configuração do Ambiente
 ```bash
@@ -488,12 +395,3 @@ python src/inference.py --export_onnx
 ```
 
 ---
-
-## 13. Análise Crítica e Conclusão
-
-### O que Aprendemos com a Jornada:
-1. **Modelos mais complexos não são necessariamente melhores:** Redes neurais gigantescas (como Transformers temporais de 2M+ parâmetros) sofrem de alta variância e overfitting severo em datasets de vigilância com 2.000 vídeos.
-2. **O poder do viés indutivo:** A introdução do gradiente de velocidade $\Delta f_t$ e da aceleração cinética $\Delta^2 f_t$ no espaço latente gerou um salto de **+10.27 pp em Acurácia** e **+15.91 pp em Recall**, sem adicionar peso computacional ao dispositivo de borda.
-3. **MLOps e Consciência de Negócio:** Em sistemas de segurança patrimonial, métricas agregadas como acurácia pura são insuficientes. A engenharia deve priorizar o **Recall da classe crítica (Fight)**, pois o custo de uma agressão não detectada é inaceitável.
-
-Com **85.41% de acurácia**, **92.05% de Recall** (apenas 7 brigas perdidas em 185 testes), **73.29 ms de latência em CPU** e compatibilidade total com **ONNX**, este pipeline consolida uma solução técnica madura, cientificamente fundamentada e pronta para implantação em produção.
