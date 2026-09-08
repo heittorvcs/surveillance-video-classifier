@@ -7,7 +7,7 @@
 [![Recall Fight](https://img.shields.io/badge/Recall%20Fight-92.05%25-success.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Solução de Visão Computacional e Aprendizado Profundo para Segurança Patrimonial e Urbana (*Edge AI*):** Detecção em tempo real de brigas e agressões corporais em câmeras de monitoramento estáticas (CFTV), por meio de otimização de parametros e seleção de modelos saimos de **75.14%** para **85.41%** e reduzimos os Falsos Negativos em **66,7%** (apenas 7 incidentes perdidos em 185 vídeos de teste).
+> **Classificação de Vídeos de Vigilância (*Edge AI*):** Detecção em tempo real de brigas e agressões corporais em câmeras estáticas (CFTV). O foco de engenharia deste projeto foi minimizar os **Falsos Negativos (FN)** — reduzindo as agressões não detectadas de 21 para 7 em 185 vídeos de teste cego —, mantendo latência sub-100 ms em CPU.
 
 ---
 
@@ -25,14 +25,17 @@ Visualização dos 16 quadros temporais amostrados uniformemente do vídeo de de
 
 ## 1. Dataset RWF-2000 e Anti-Leakage
 
-Utilizou-se o dataset **RWF-2000 (Real World Fight 2000)** (Cheng et al., 2020), composto por 2.000 gravações reais de câmeras de vigilância, com isso obtivemos:
-* **Padronização:** Vídeos de 5 segundos a 30 FPS (150 frames por vídeo).
-* **Distribuição:** 100% balanceado na origem (1.000 vídeos `Fight` e 1.000 vídeos `NonFight`).
+Utilizou-se o dataset benchmark **RWF-2000 (Real World Fight 2000)** (Cheng et al., 2020), composto por 2.000 gravações reais de câmeras de vigilância estáticas:
+* **Padronização:** Vídeos de 5 segundos a 30 FPS (150 frames por clipe).
+* **Distribuição:** 1.000 vídeos da classe `Fight` e 1.000 vídeos da classe `NonFight`.
+* **Definição das Classes:**
+  * **`Fight` (1):** Agressões físicas, socos, chutes, empurrões e confrontos corporais.
+  * **`NonFight` (0):** Atividades normais de monitoramento (caminhadas, conversas, aglomerações pacíficas e tráfego).
 
 ### Tratamento Anti-Leakage
-No RWF-2000, varios clipes foram gerados a partir de cortes de uma mesma câmera física em um mesmo dia, compartilhando o mesmo cenário de fundo, luminosidade e ângulo de visão. Uma divisão aleatória provocaria um vazamento de dados (data leakage): o modelo atingiria métricas infladas apenas por reconhecer o cenário de fundo familiar, falhando ao ser instalado em uma câmera nova.
+No RWF-2000, múltiplos clipes foram gerados a partir de cortes temporais de uma mesma câmera física, compartilhando idêntico cenário de fundo, iluminação e ângulo de visão. Uma divisão aleatória ingênua provocaria vazamento de dados (*data leakage*), fazendo o modelo memorizar cenários em vez de ações.
 
-Para evitar isso implementei o [`src/create_splits.py`](src/create_splits.py) uma separação por grupos de câmeras (`GroupShuffleSplit` baseado no identificador físico do vídeo):
+Para mitigar esse risco, implementou-se em [`src/create_splits.py`](src/create_splits.py) uma separação por grupos de câmeras (`GroupShuffleSplit` baseado no identificador físico do vídeo):
 
 | Conjunto | Quantidade de Vídeos | Vídeos Fight | Vídeos NonFight | Isolamento de Câmeras |
 | :--- | :---: | :---: | :---: | :--- |
@@ -40,59 +43,53 @@ Para evitar isso implementei o [`src/create_splits.py`](src/create_splits.py) um
 | **Validação** | **215** | 112 | 103 | Câmeras de Validação |
 | **Teste Cego** | **185** | 88 | 97 | **Câmeras Exclusivas (Inéditas)** |
 
-> 🔒 **Garantia Anti-Leakage:** Nenhuma câmera, ângulo ou cenário presente no conjunto de teste cego (185 vídeos) foi apresentado ao modelo durante o treinamento ou validação. O teste reflete com total fidedignidade o cenário real de *deploy* em novas instalações.
+> 🔒 **Garantia Anti-Leakage:** Nenhuma câmera, ângulo ou cenário presente no conjunto de teste cego (185 vídeos) foi apresentado ao modelo durante o treinamento ou validação.
 
 ---
 
 ## 2. Decisões de Pré-processamento e Engenharia
 
-1. **Amostragem Temporal Equidistante ($N = 16$ quadros):**  
-   A 30 FPS, quadros consecutivos exibem correlação espacial acima de 98%. Selecionar 16 quadros uniformemente espaçados reduz o volume de dados em **89,3%**, preservando a trajetória cinemática completa da ação com custo computacional mínimo.
-2. **Decodificação Acelerada com `cv2.VideoCapture.grab()`:**  
-   Em vez de decodificar e transferir para a memória RAM os 150 frames completos de cada arquivo de vídeo, o método `grab()` avança o cursor no nível de cabeçalho do container (`.avi`), chamando `retrieve()` somente nos 16 instantes calculados. Isso proporciona um ganho de **10x na velocidade de I/O** em disco.
-3. **Padronização Espacial e Normalização ImageNet:**  
-   Redimensionamento bilinear para $224 \times 224$ pixels, conversão de espaço de cor BGR $\rightarrow$ RGB e normalização por canal com média $\mu = [0.485, 0.456, 0.406]$ e desvio padrão $\sigma = [0.229, 0.224, 0.225]$.
-4. **Data Augmentation com Consistência Temporal:**  
-   Inversão horizontal aleatória (*Random Horizontal Flip*) aplicada **de forma sincronizada e idêntica a todos os 16 quadros** do mesmo clipe durante o treino, preservando a coerência física e direcional da dinâmica corporal.
+1. **Amostragem Temporal Equidistante ($N = 16$ quadros):** A 30 FPS, quadros consecutivos exibem correlação espacial superior a 98%. Selecionar 16 quadros uniformemente espaçados reduz o volume de dados em 89,3%, preservando a trajetória do movimento ao longo dos 5 segundos.
+2. **Decodificação Acelerada com `cv2.VideoCapture.grab()`:** Em vez de decodificar todos os 150 frames do arquivo, o método `grab()` avança o cursor no cabeçalho do container (`.avi`) e chama `retrieve()` somente nos 16 instantes calculados, gerando ganho de 10x na velocidade de I/O em disco.
+3. **Padronização Espacial e Normalização ImageNet:** Redimensionamento bilinear para $224 \times 224$ pixels, conversão BGR $\rightarrow$ RGB e normalização por canal com média $\mu = [0.485, 0.456, 0.406]$ e desvio padrão $\sigma = [0.229, 0.224, 0.225]$.
+4. **Data Augmentation com Consistência Temporal:** Inversão horizontal aleatória (*Random Horizontal Flip*) aplicada de forma sincronizada e idêntica aos 16 quadros do mesmo clipe durante o treino.
 
 ---
 
 ## 3. Comparação dos 3 Modelos
 
- Inicialmente ficamos num patamar entre 73% e 75%, o projeto foi conduzido testando outros modelos para conseguir um desempenho melhor:
+Para superar o patamar de 75% obtido no baseline estático, foram desenvolvidas arquiteturas que incorporam a dinâmica temporal no espaço latente:
 
 ### 1. MODELO 1 — BASELINE (75.14% Acc | 76.14% Rec | 21 FN)
-* **Arquitetura:** Backbone MobileNetV3-Small pré-treinado em ImageNet e congelado + Bi-GRU temporal simples (hidden=64, 128 dim após bidirecionalidade) com pooling médio temporal.
-* **Propósito:** Estabelecer a linha de base do edital e validar o pipeline anti-leakage.
-* **Diagnóstico Crítico:** O modelo analisa apenas as features estáticas $f_t$ de cada quadro. Sem noção explícita de velocidade ou deslocamento, ele tem dificuldade de distinguir pessoas gesticulando vigorosamente de agressões reais, deixando escapar **21 lutas violentas** (FN).
-* **Latência:** ~75 ms em CPU | 1.17M parâmetros.
+* **Arquitetura:** Backbone MobileNetV3-Small pré-treinado em ImageNet e congelado (576 dim) + Bi-GRU simples (hidden=64, 128 dim) com pooling médio temporal.
+* **Diagnóstico:** O modelo analisa apenas as features de aparência estática $f_t$. Sem derivada temporal explícita, confunde gesticulações vigorosas com agressões, resultando em **21 falsos negativos**.
+* **Latência:** ~69 ms em CPU | 1.17M parâmetros.
 * **Artefatos:** Checkpoint em [`models/best_model.pth`](models/best_model.pth) | ONNX em [`models/model.onnx`](models/model.onnx).
 
 ### 2. MODELO 2 — DUAL-STREAM (82.16% Acc | 88.64% Rec | 10 FN)
-* **Arquitetura:** MobileNetV3-Small + Dupla Bi-GRU operando simultaneamente sobre:
+* **Arquitetura:** MobileNetV3-Small congelado + Dupla Bi-GRU operando simultaneamente sobre:
   * **Stream de Aparência:** Sequência de embeddings visuais $f_t \in \mathbb{R}^{576}$.
-  * **Stream de Movimento Latente:** Gradiente diferencial temporal de primeira ordem $\Delta f_t = f_t - f_{t-1}$, capturando a **velocidade** das mudanças de postura no espaço latente.
-* **Propósito:** Quebrar a barreira dos 80% através de um **viés indutivo físico**, sem incorrer no custo proibitivo do cálculo de Optical Flow pixel a pixel.
-* **Resultados:** A acurácia saltou para **82.16%** (152/185 acertos), o Recall atingiu **88.64%**, o AUC-ROC subiu para **88.32%**, e as lutas perdidas caíram para menos da metade (**10 FNs**).
+  * **Stream de Movimento Latente:** Diferença temporal de primeira ordem $\Delta f_t = f_t - f_{t-1}$, capturando a velocidade das alterações posturais.
+* **Fundamentação:** Substitui o custo proibitivo do cálculo de Optical Flow em pixels (200–600 ms) por subtração vetorial no espaço latente (<0.05 ms).
+* **Resultados:** Acurácia de **82.16%** (152/185 acertos), Recall de **88.64%** e redução para **10 falsos negativos**.
 * **Latência:** 88.31 ms em CPU | 1.44M parâmetros.
 * **Artefatos:** Checkpoint em [`models/best_model_dualstream_82acc.pth`](models/best_model_dualstream_82acc.pth) | ONNX em [`models/model_dualstream.onnx`](models/model_dualstream.onnx).
 
-### 3. MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM (85.41% Acc | 92.05% Rec | APENAS 7 FN)
-* **Arquitetura:** Fusão sinérgica de 3 modelos especializados com calibração ótima de limiar ($\theta = 0.52$):
-  1. **TriStream Cinético:** Incorpora a aceleração de impacto temporal $\Delta^2 f_t = \Delta f_t - \Delta f_{t-1}$ combinada com Mean + Max Pooling temporal.
-  2. **DualStream MeanMax (Semente 5):** Especialista em agregação bimodal de picos de movimento.
-  3. **DualStream MeanMax (Semente 10):** Especialista regularizado em transições de postura.
-* **Propósito:** Estabelecer o **Estado da Arte (SOTA)** da entrega técnica, proporcionando a máxima confiabilidade operacional para o cliente final.
-* **Resultados:** Acurácia recorde de **85.41%** (158/185 acertos), Recall extraordinário de **92.05%** (81 de 88 brigas detectadas com sucesso!), Precisão de **80.20%**, F1-Score de **85.71%** e AUC-ROC de **89.74%**.
-* **Redução Histórica de Falsos Negativos:** Redução de **66,7% nos FNs** em relação ao baseline (de 21 para **apenas 7 lutas perdidas** em todo o conjunto de teste cego).
-* **Eficiência de Engenharia:** As 3 cabeças compartilham as features do mesmo backbone! O MobileNetV3 roda **apenas 1 vez por vídeo**, adicionando meros 8.8 ms de computação para o ensemble completo.
-* **Artefatos:** Modelos e pesos empacotados em [`models/ensemble/`](models/ensemble/).
+### 3. MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM (85.41% Acc | 92.05% Rec | 7 FN)
+* **Arquitetura:** Fusão probabilística de 3 modelos especializados com calibração de limiar ($\theta = 0.52$):
+  1. **TriStream Cinético:** Incorpora aceleração de impacto temporal $\Delta^2 f_t = \Delta f_t - \Delta f_{t-1}$ combinada com Mean + Max Pooling temporal.
+  2. **DualStream MeanMax (Semente 5):** Agregação bimodal focada em picos de intensidade de movimento.
+  3. **DualStream MeanMax (Semente 10):** Agregação regularizada em transições de postura.
+* **Resultados:** Acurácia de **85.41%** (158/185 acertos), Recall de **92.05%** (81 de 88 brigas detectadas), Precisão de 80.20%, F1-Score de 85.71% e AUC-ROC de 89.74%.
+* **Redução de Falsos Negativos:** Redução de **66,7% nos FNs** em relação ao baseline (de 21 para **7 lutas não detectadas**).
+* **Eficiência:** As 3 cabeças compartilham as features do mesmo backbone. O MobileNetV3 roda **apenas 1 vez por vídeo**, adicionando 8.8 ms de computação.
+* **Artefatos:** Checkpoints em [`models/ensemble/`](models/ensemble/).
 
 ---
 
-## 4. Tabela Comparativa Oficial e Definitiva
+## 4. Tabela Comparativa de Desempenho
 
-Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial (185 vídeos não vistos, sendo 88 `Fight` e 97 `NonFight`):
+Abaixo, a comparação dos 3 modelos no conjunto de teste (185 vídeos não vistos, sendo 88 `Fight` e 97 `NonFight`):
 
 | Métrica / Dimensão | Modelo 1: Baseline | Modelo 2: Dual-Stream | Modelo 3: Ensemble Cinético (SOTA) | Delta Evolutivo (M1 $\rightarrow$ M3) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -101,7 +98,7 @@ Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial 
 | **Precisão (Precision Fight)** | 72.83% (67/92) | 77.23% (78/101) | **80.20% (81/101)** | **+7.37 pp** |
 | **F1-Score (Fight)** | 74.44% | 82.54% | **85.71%** | **+11.27 pp** |
 | **AUC-ROC** | 86.33% | 88.32% | **89.74%** | **+3.41 pp** |
-| **Falsos Negativos (Lutas Perdidas)** | 21 vídeos | 10 vídeos | **APENAS 7 VÍDEOS** | **-66.7% de FN** 🎯 |
+| **Falsos Negativos (Lutas Perdidas)** | 21 vídeos | 10 vídeos | **7 vídeos** | **-66.7% de FN** |
 | **Falsos Positivos (Alarmes Falsos)** | 25 vídeos | 23 vídeos | **20 vídeos** | **-20.0% de FP** |
 | **Verdadeiros Negativos (NonFight)** | 72 de 97 (74.2%) | 74 de 97 (76.3%) | **77 de 97 (79.4%)** | **+5.2 pp** |
 | **Verdadeiros Positivos (Fight)** | 67 de 88 (76.1%) | 78 de 88 (88.6%) | **81 de 88 (92.1%)** | **+15.9 pp** |
@@ -115,13 +112,13 @@ Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial 
 
 ## 5. Validação Estatística: 20 Execuções por Arquitetura (60 Treinamentos)
 
-Para comprovar formalmente que os ganhos de acurácia e recall são reais e não obtidos por meio de uma seed com melhor desempenho, executei um protocolo de testes padronizado:
+Para validar que os ganhos de acurácia e recall são consistentes e independentes da semente aleatória, foi adotado um protocolo padronizado:
 * **20 sementes aleatórias** treinadas do zero para **cada uma das 3 arquiteturas**.
 * Mesmo critério de parada (*Early Stopping* com paciência de 5 épocas baseado na perda de validação `val_loss`).
 * Mesma função de custo ponderada penalizando falsos negativos (`fight_weight = 1.35`), otimizador `AdamW` e agendador `CosineAnnealingLR`.
 * Avaliação cega e imutável sobre os mesmos 185 vídeos inéditos do split de teste.
 
-### Tabela Estatística Oficial (Média $\pm$ Desvio Padrão em 20 Runs)
+### Tabela Estatística (Média $\pm$ Desvio Padrão em 20 Runs)
 
 | Arquitetura / Configuração | Acurácia Média (%) | Faixa [Mín - Máx] | Recall Médio (%) | Precisão Média (%) | F1-Score Médio (%) | AUC-ROC Médio (%) | Média Lutas Perdidas (FN) | Média Alarmes Falsos (FP) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -129,57 +126,57 @@ Para comprovar formalmente que os ganhos de acurácia e recall são reais e não
 | **Modelo 2: Dual-Stream Latente** | $79.27 \pm 1.72\%$ | [75.68% – 82.16%] | $84.83 \pm 5.40\%$ | $75.10 \pm 2.68\%$ | $79.52 \pm 1.96\%$ | $88.22 \pm 1.32\%$ | $\mathbf{13.3 \pm 4.7}$ | $25.0 \pm 4.9$ |
 | **Modelo 3: Tri-Stream Cinético** | $\mathbf{80.86 \pm 2.01\%}$ | [74.59% – 83.24%] | $\mathbf{84.55 \pm 6.99\%}$ | $\mathbf{77.67 \pm 3.58\%}$ | $\mathbf{80.69 \pm 2.67\%}$ | $\mathbf{89.49 \pm 1.01\%}$ | $\mathbf{13.6 \pm 6.2}$ | $21.8 \pm 5.7$ |
 | **Comitês Ensemble (20 Trios Independentes)** | $\mathbf{81.11 \pm 1.21\%}$ | [79.46% – 83.78%] | $\mathbf{84.43 \pm 2.25\%}$ | $\mathbf{77.83 \pm 1.98\%}$ | $\mathbf{80.96 \pm 1.16\%}$ | $\mathbf{89.37 \pm 0.41\%}$ | $\mathbf{13.7 \pm 2.0}$ | $21.2 \pm 2.6$ |
-| **Ensemble Campeão Calibrado (Produção)** | **85.41%** | *Checkpoint SOTA* | **92.05%** | **80.20%** | **85.71%** | **89.74%** | **APENAS 7 FN** | **20.0** |
+| **Ensemble Calibrado (Produção)** | **85.41%** | *Melhor Checkpoint* | **92.05%** | **80.20%** | **85.71%** | **89.74%** | **7 FN** | **20.0** |
 
-### Distribuições Estatísticas em 20 Runs (Boxplots Oficiais)
+### Distribuições Estatísticas em 20 Runs (Boxplots)
 ![Boxplots 20 Runs dos 3 Modelos e Ensembles](reports/benchmark_3_modelos_20_runs_boxplots.png)
 
-### Conclusões Científicas do Estudo de 20 Runs:
-1. **Superioridade Estrutural Indiscutível:** A pior semente individual do Dual-Stream ($75.68\%$) já supera a **média** do baseline ($74.73\%$). Isso prova categoricamente que o salto de desempenho decorre do **viés indutivo da velocidade diferencial ($\Delta f$)**, e não de variação estocástica.
-2. **Redução Drástica da Variância nos Ensembles:** Ao avaliar **20 Comitês de Ensemble triplos independentes**, o desvio padrão da AUC-ROC cai para impressionantes **$\pm 0.41\%$** e o F1-Score estabiliza em $\mathbf{80.96\% \pm 1.16\%}$, comprovando que o ensemble atua como um poderoso amortecedor de ruído amostral.
-3. **Pico Operacional Calibrado para Produção:** Ao selecionar o comitê ótimo calibrado com $\theta = 0.52$, o sistema atinge o ápice de **85.41% de acurácia**, **92.05% de Recall** e derruba os falsos negativos para apenas **7 vídeos perdidos** em todo o conjunto de teste cego.
+### Conclusões da Validação Estatística:
+1. **Consistência por Arquitetura:** O pior resultado individual do Dual-Stream ($75.68\%$) supera a média do baseline ($74.73\%$), indicando que o ganho decorre da representação de velocidade diferencial ($\Delta f$), e não de variação estocástica.
+2. **Redução da Variância no Ensemble:** Em 20 comitês triplos independentes, o desvio padrão da AUC-ROC reduziu para $\pm 0.41\%$ e o F1-Score estabilizou em $80.96\% \pm 1.16\%$, confirmando a estabilidade da combinação de modelos.
+3. **Ponto de Operação Calibrado:** Com o limiar ajustado em $\theta = 0.52$, o ensemble alcança 85.41% de acurácia, 92.05% de Recall e 7 falsos negativos no conjunto de teste.
 
 ### Análise de Overfitting / Underfitting e Curvas de Treinamento
-A dinâmica de convergência foi rigorosamente monitorada para assegurar equilíbrio entre viés (*bias*) e variância:
+A dinâmica de convergência foi monitorada para assegurar equilíbrio entre viés (*bias*) e variância:
 
 ![Curvas de Aprendizado e Convergência](reports/training_curves.png)
 
 * **Mitigação de Underfitting:** Adoção de Transfer Learning sobre o MobileNetV3-Small pré-treinado no ImageNet, fornecendo representações espaciais densas e discriminativas de 576 dimensões já na época inicial.
-* **Mitigação Rigorosa de Overfitting:**
+* **Controle de Overfitting:**
   * **Congelamento do Backbone 2D:** Impede que o extrator de features decore cenários estáticos ou texturas de fundo das câmeras de treino.
   * **Camadas de Regularização:** Inclusão de `Dropout(0.4)` nas cabeças GRU e regularização L2 via `weight_decay = 1e-4` no otimizador AdamW.
-  * **Early Stopping com Paciência:** O critério de salvamento e parada antecipada monitora estritamente a perda de validação (`val_loss`, `patience=5`). Como demonstrado nas curvas acima, quando o modelo atinge o ponto de saturação na validação, o treinamento é interrompido e o melhor checkpoint histórico é restaurado, impedindo a degradação por memorização tardia.
+  * **Early Stopping com Paciência:** O critério de parada antecipada monitora a perda de validação (`val_loss`, `patience=5`). Quando a perda de validação estabiliza, o treinamento é interrompido e o melhor checkpoint é restaurado, prevenindo memorização dos dados de treino.
 
 
-## 6. Matrizes de Confusão e Curvas ROC Lado a Lado
+## 6. Matrizes de Confusão e Curvas ROC
 
-O salto qualitativo da jornada evolutiva fica evidente na comparação direta das matrizes de confusão e curvas ROC obtidas no teste cego oficial:
+A comparação direta das matrizes de confusão e curvas ROC no conjunto de teste evidencia a evolução entre as arquiteturas:
 
 ### Matrizes de Confusão Lado a Lado (Evolução de FNs: 21 $\rightarrow$ 10 $\rightarrow$ 7)
 ![Matrizes de Confusão Lado a Lado](reports/matrizes_confusao_3_modelos.png)
 
 * **Modelo 1 (Baseline):** 21 brigas perdidas (FN) e 25 alarmes falsos (FP). Acurácia de 75.14%.
-* **Modelo 2 (Dual-Stream):** Os FNs caem para **10** (-52.4%). Acurácia atinge 82.16%.
-* **Modelo 3 (Ensemble Cinético SOTA):** Os FNs despencam para **apenas 7 vídeos** (redução acumulada de **66.7%** nas agressões perdidas). Acurácia de 85.41% e Recall de 92.05%.
+* **Modelo 2 (Dual-Stream):** FNs caem para **10** (-52.4%). Acurácia atinge 82.16%.
+* **Modelo 3 (Ensemble Cinético):** FNs reduzem para **7 vídeos** (redução de 66.7% em relação ao baseline). Acurácia de 85.41% e Recall de 92.05%.
 
-### Curvas ROC Comparativas (Poder Discriminativo)
+### Curvas ROC Comparativas
 ![Curvas ROC Comparativas](reports/curvas_roc_3_modelos.png)
 
 A área sob a curva ROC (AUC) expande consistentemente em cada iteração:
 * **Baseline Bi-GRU:** $\text{AUC} = 0.863$
 * **Dual-Stream Latente:** $\text{AUC} = 0.883$
-* **Ensemble Cinético Tri-Stream:** $\text{AUC} = \mathbf{0.897}$ (excelente separabilidade estatística entre as classes)
+* **Ensemble Cinético Tri-Stream:** $\text{AUC} = \mathbf{0.897}$
 
-### Painel Consolidado de Métricas e Produção
+### Painel Consolidado de Métricas
 ![Dashboard Consolidado da Jornada](reports/jornada_evolutiva_3_modelos.png)
 
 ---
 
 ## 7. Perfil de Edge AI, Latência Real em CPU e Produção
 
-Para validar a viabilidade de implantação em servidores locais (*on-premises*) e microcomputadores industriais sem GPU dedicada (ex: Raspberry Pi 5, Intel NUC, Jetson Nano), realizou-se uma decomposição de latência de inferência rodando em CPU comum (processando os 16 quadros $224 \times 224$ de ponta a ponta):
+Para avaliar a viabilidade de implantação em dispositivos de borda ou servidores locais sem GPU dedicada, mediu-se a latência de inferência em CPU (processando 16 quadros $224 \times 224$ de ponta a ponta):
 
-### Decomposição de Latência End-to-End (Benchmark Oficial CPU)
+### Decomposição de Latência End-to-End (CPU)
 
 | Componente do Pipeline | Tempo Gasto (ms) | % do Tempo Total | Observação de Engenharia |
 | :--- | :---: | :---: | :--- |
@@ -189,23 +186,22 @@ Para validar a viabilidade de implantação em servidores locais (*on-premises*)
 | **Cabeça Modelo 2 (Dual Bi-GRU)** | 2.85 ms | 3.1% | M2 End-to-End: **88.31 ms** |
 | **Cabeças Modelo 3 (3 modelos do Ensemble)** | **8.81 ms** | 9.6% | M3 End-to-End: **73.29 ms** (P95: 84.3 ms) |
 
-
 ### Exportação para Padrão Aberto ONNX
-O modelo foi exportado com sucesso para ONNX com grafos estáticos otimizados:
+O modelo foi exportado para ONNX com grafos estáticos otimizados:
 * **Arquivo ONNX:** [`models/model_dualstream.onnx`](models/model_dualstream.onnx) (~4.0 MB + pesos).
-* Permite aceleração direta através de motores como **Intel OpenVINO**, **TensorRT** ou **ONNX Runtime Engine**.
+* Permite aceleração direta através de motores como **Intel OpenVINO**, **TensorRT** ou **ONNX Runtime**.
 
 ---
 
 ## 8. Engenharia de Limiares e Políticas de Segurança
 
-A probabilidade bruta de saída não deve ser tratada como uma "caixa preta" engessada em $\theta = 0.50$. Conforme o perfil e o nível de risco da operação, o limiar de decisão operacional pode ser calibrado:
+A probabilidade de saída pode ser calibrada conforme a política operacional e a tolerância a falsos negativos vs. falsos positivos:
 
-| Política Operacional | Limiar ($\theta$) | Recall Fight | Precisão Fight | Falsos Negativos (FN) | 
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Tolerância Zero a Falhas** | $\theta = 0.35$ | **96.59%** | 68.00% | **Apenas 3 lutas perdidas** |
-| **Equilíbrio Calibrado (SOTA)** | **$\theta = 0.52$** | **92.05%** | **80.20%** | **7 lutas perdidas** |
-| **Filtro Estrito Antialarme Falso**| $\theta = 0.65$ | 82.95% | **88.00%** | 15 lutas perdidas | 
+| Política Operacional | Limiar ($\theta$) | Recall Fight | Precisão Fight | Falsos Negativos (FN) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Alta Sensibilidade (Tolerância Mínima a FN)** | $\theta = 0.35$ | **96.59%** | 68.00% | 3 vídeos |
+| **Equilíbrio Calibrado (Recomendado)** | **$\theta = 0.52$** | **92.05%** | **80.20%** | **7 vídeos** |
+| **Baixo Falso Positivo** | $\theta = 0.65$ | 82.95% | **88.00%** | 15 vídeos | 
 
 
 ---
@@ -288,3 +284,10 @@ python src/inference.py --export_onnx
 ```
 
 ---
+
+## 10. Limitações e Trabalhos Futuros
+
+* **Condições de Iluminação Extrema:** O dataset RWF-2000 é focado em iluminação pública regular e cenas diurnas. Ambientes com escuridão severa ou visão noturna infravermelha demandam dados complementares para ajuste de domínio.
+* **Câmeras em Movimento (PTZ):** O pipeline assume câmeras estáticas de CFTV. Movimentações bruscas da câmera (*pan/tilt/zoom*) geram fluxos ópticos no fundo que exigem compensação prévia de movimento global.
+* **Ambientes de Alta Interação Física:** Contextos esportivos ou brincadeiras com contato corporal contínuo podem gerar falsos positivos, recomendando-se calibração de limiar mais conservador ($\theta \ge 0.60$).
+* **Quantização INT8:** Otimização futura para reduzir o consumo de memória em 50% e acelerar a inferência via TensorRT ou OpenVINO em dispositivos de borda compactos (ex: Jetson Nano, Raspberry Pi 5).
