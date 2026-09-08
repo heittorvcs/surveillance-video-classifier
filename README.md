@@ -1,4 +1,4 @@
-# 🛡️ Surveillance Video Classifier: Detecção de Violência em CCTV (Edge AI)
+# Surveillance Video Classifier: Detecção de Violência em CCTV (Edge AI)
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
@@ -43,7 +43,7 @@ Para mitigar esse risco, implementou-se em [`src/create_splits.py`](src/create_s
 | **Validação** | **215** | 112 | 103 | Câmeras de Validação |
 | **Teste Cego** | **185** | 88 | 97 | **Câmeras Exclusivas (Inéditas)** |
 
-> 🔒 **Garantia Anti-Leakage:** Nenhuma câmera, ângulo ou cenário presente no conjunto de teste cego (185 vídeos) foi apresentado ao modelo durante o treinamento ou validação.
+> **Garantia Anti-Leakage:** Nenhuma câmera, ângulo ou cenário presente no conjunto de teste cego (185 vídeos) foi apresentado ao modelo durante o treinamento ou validação.
 
 ---
 
