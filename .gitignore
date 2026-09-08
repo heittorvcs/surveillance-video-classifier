@@ -18,3 +18,9 @@ env/
 # Experimentos legados e arquivos obsoletos
 legacy_experiments/
 experiments/
+
+# Pool de candidatos do ensemble (grande, regeravel via src/train.py)
+models/pool/
+
+# Testes
+.pytest_cache/
