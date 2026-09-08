@@ -82,24 +82,17 @@ Para superar o patamar do baseline estático, foram desenvolvidas arquiteturas q
 
 ## 4. Tabela Comparativa de Desempenho
 
-Abaixo, a comparação dos 3 modelos no conjunto de teste (185 vídeos não vistos, sendo 88 `Fight` e 97 `NonFight`):
+Desempenho dos modelos avaliados no conjunto de teste (185 vídeos: 88 `Fight` e 97 `NonFight`):
 
-| Métrica / Dimensão | Modelo 1: Baseline | Modelo 2: Dual-Stream | Modelo 3: Ensemble Cinético (SOTA) | Delta Evolutivo (M1 $\rightarrow$ M3) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Acurácia Global (Accuracy)** | 75.14% (139/185) | 82.16% (152/185) | **85.41% (158/185)** | **+10.27 pp** |
-| **Sensibilidade (Recall Fight)** | 76.14% (67/88) | 88.64% (78/88) | **92.05% (81/88)** | **+15.91 pp** |
-| **Precisão (Precision Fight)** | 72.83% (67/92) | 77.23% (78/101) | **80.20% (81/101)** | **+7.37 pp** |
-| **F1-Score (Fight)** | 74.44% | 82.54% | **85.71%** | **+11.27 pp** |
-| **AUC-ROC** | 86.33% | 88.32% | **89.74%** | **+3.41 pp** |
-| **Falsos Negativos (Lutas Perdidas)** | 21 vídeos | 10 vídeos | **7 vídeos** | **-66.7% de FN** |
-| **Falsos Positivos (Alarmes Falsos)** | 25 vídeos | 23 vídeos | **20 vídeos** | **-20.0% de FP** |
-| **Verdadeiros Negativos (NonFight)** | 72 de 97 (74.2%) | 74 de 97 (76.3%) | **77 de 97 (79.4%)** | **+5.2 pp** |
-| **Verdadeiros Positivos (Fight)** | 67 de 88 (76.1%) | 78 de 88 (88.6%) | **81 de 88 (92.1%)** | **+15.9 pp** |
-| **Parâmetros Totais** | 1.17M | 1.44M | ~2.5M (Compartilhados) | Escalável |
-| **Tamanho em Disco** | 4.8 MB | 5.9 MB | ~11.0 MB | Leve para Borda |
-| **Latência Média End-to-End (CPU)** | 69.21 ms | 88.31 ms | **73.29 ms** (Nominal: 95.8 ms) | Tempo Real (<100 ms) |
-| **Throughput Equivalente** | ~14.4 vídeos/s | ~11.3 vídeos/s | **~13.6 vídeos/s (218 FPS eq.)**| Suporta Múltiplas Câmeras |
-| **Limiar Operacional Recomendado** | $\theta = 0.50$ | $\theta = 0.50$ | **$\theta = 0.52$ (Calibrado)** | Ajustado para Negócio |
+| Métrica | Modelo 1: Baseline | Modelo 2: Dual-Stream | Modelo 3: Ensemble (SOTA) |
+| :--- | :---: | :---: | :---: |
+| **Acurácia (Accuracy)** | 75.14% | 82.16% | **85.41%** |
+| **Sensibilidade (Recall)** | 76.14% | 88.64% | **92.05%** |
+| **Precisão (Precision)** | 72.83% | 77.23% | **80.20%** |
+| **F1-Score** | 74.44% | 82.54% | **85.71%** |
+| **AUC-ROC** | 86.33% | 88.32% | **89.74%** |
+| **Falsos Negativos (Lutas Perdidas)** | 21 | 10 | **7** |
+| **Falsos Positivos (Alarmes Falsos)** | 25 | 23 | **20** |
 
 ---
 
@@ -162,19 +155,15 @@ A área sob a curva ROC (AUC) expande consistentemente em cada iteração:
 
 ---
 
-## 7. Perfil de Edge AI, Latência Real em CPU e Produção
+## 7. Perfil de Edge AI e Eficiência Computacional
 
-Para avaliar a viabilidade de implantação em dispositivos de borda ou servidores locais sem GPU dedicada, mediu-se a latência de inferência em CPU (processando 16 quadros $224 \times 224$ de ponta a ponta):
+Medição de latência e consumo de recursos para inferência em CPU (16 quadros $224 \times 224$):
 
-### Decomposição de Latência End-to-End (CPU)
-
-| Componente do Pipeline | Tempo Gasto (ms) | % do Tempo Total | Observação de Engenharia |
-| :--- | :---: | :---: | :--- |
-| **Decodificação e I/O (`cv2.VideoCapture.grab`)** | ~18.5 ms | 20.2% | Pula 89.3% dos frames no container |
-| **Backbone Espacial 2D (MobileNetV3-Small)** | **68.07 ms** | 74.2% | Roda apenas **1 VEZ** por vídeo |
-| **Cabeça Modelo 1 (Bi-GRU Simples)** | 1.14 ms | 1.2% | M1 End-to-End: **69.21 ms** |
-| **Cabeça Modelo 2 (Dual Bi-GRU)** | 2.85 ms | 3.1% | M2 End-to-End: **88.31 ms** |
-| **Cabeças Modelo 3 (3 modelos do Ensemble)** | **8.81 ms** | 9.6% | M3 End-to-End: **73.29 ms** (P95: 84.3 ms) |
+| Arquitetura | Parâmetros | Tamanho em Disco | Latência Média (CPU) | Throughput Estimado |
+| :--- | :---: | :---: | :---: | :---: |
+| **Modelo 1: Baseline** | 1.17M | 4.8 MB | 69.2 ms | ~14.4 vídeos/s |
+| **Modelo 2: Dual-Stream** | 1.44M | 5.9 MB | 88.3 ms | ~11.3 vídeos/s |
+| **Modelo 3: Ensemble (SOTA)** | ~2.5M | 11.0 MB | 73.3 ms | ~13.6 vídeos/s |
 
 ### Exportação para Padrão Aberto ONNX
 O modelo foi exportado para ONNX com grafos estáticos otimizados:
