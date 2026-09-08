@@ -58,31 +58,24 @@ Para mitigar esse risco, implementou-se em [`src/create_splits.py`](src/create_s
 
 ## 3. Comparação dos 3 Modelos
 
-Para superar o patamar de 75% obtido no baseline estático, foram desenvolvidas arquiteturas que incorporam a dinâmica temporal no espaço latente:
+Para superar o patamar do baseline estático, foram desenvolvidas arquiteturas que incorporam a dinâmica temporal no espaço latente:
 
-### 1. MODELO 1 — BASELINE (75.14% Acc | 76.14% Rec | 21 FN)
+### 1. MODELO 1 — BASELINE
 * **Arquitetura:** Backbone MobileNetV3-Small pré-treinado em ImageNet e congelado (576 dim) + Bi-GRU simples (hidden=64, 128 dim) com pooling médio temporal.
-* **Diagnóstico:** O modelo analisa apenas as features de aparência estática $f_t$. Sem derivada temporal explícita, confunde gesticulações vigorosas com agressões, resultando em **21 falsos negativos**.
-* **Latência:** ~69 ms em CPU | 1.17M parâmetros.
+* **Diagnóstico:** O modelo analisa apenas as features de aparência estática $f_t$. Sem derivada temporal explícita, confunde gesticulações vigorosas com agressões.
 * **Artefatos:** Checkpoint em [`models/best_model.pth`](models/best_model.pth) | ONNX em [`models/model.onnx`](models/model.onnx).
 
-### 2. MODELO 2 — DUAL-STREAM (82.16% Acc | 88.64% Rec | 10 FN)
-* **Arquitetura:** MobileNetV3-Small congelado + Dupla Bi-GRU operando simultaneamente sobre:
-  * **Stream de Aparência:** Sequência de embeddings visuais $f_t \in \mathbb{R}^{576}$.
-  * **Stream de Movimento Latente:** Diferença temporal de primeira ordem $\Delta f_t = f_t - f_{t-1}$, capturando a velocidade das alterações posturais.
-* **Fundamentação:** Substitui o custo proibitivo do cálculo de Optical Flow em pixels (200–600 ms) por subtração vetorial no espaço latente (<0.05 ms).
-* **Resultados:** Acurácia de **82.16%** (152/185 acertos), Recall de **88.64%** e redução para **10 falsos negativos**.
-* **Latência:** 88.31 ms em CPU | 1.44M parâmetros.
+### 2. MODELO 2 — DUAL-STREAM
+* **Arquitetura:** MobileNetV3-Small congelado + Dupla Bi-GRU operando simultaneamente sobre aparência ($f_t$) e velocidade latente ($\Delta f_t = f_t - f_{t-1}$).
+* **Fundamentação:** Substitui o custo de cálculo de Optical Flow em pixels (200–600 ms) por subtração vetorial no espaço latente (<0.05 ms).
 * **Artefatos:** Checkpoint em [`models/best_model_dualstream_82acc.pth`](models/best_model_dualstream_82acc.pth) | ONNX em [`models/model_dualstream.onnx`](models/model_dualstream.onnx).
 
-### 3. MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM (85.41% Acc | 92.05% Rec | 7 FN)
-* **Arquitetura:** Fusão probabilística de 3 modelos especializados com calibração de limiar ($\theta = 0.52$):
-  1. **TriStream Cinético:** Incorpora aceleração de impacto temporal $\Delta^2 f_t = \Delta f_t - \Delta f_{t-1}$ combinada com Mean + Max Pooling temporal.
-  2. **DualStream MeanMax (Semente 5):** Agregação bimodal focada em picos de intensidade de movimento.
+### 3. MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM (SOTA)
+* **Arquitetura:** Comitê com fusão probabilística de 3 cabeças temporais especializadas ($\theta = 0.52$):
+  1. **TriStream Cinético:** Incorpora aceleração temporal $\Delta^2 f_t = \Delta f_t - \Delta f_{t-1}$ com Mean + Max Pooling.
+  2. **DualStream MeanMax (Semente 5):** Agregação bimodal para picos de movimento.
   3. **DualStream MeanMax (Semente 10):** Agregação regularizada em transições de postura.
-* **Resultados:** Acurácia de **85.41%** (158/185 acertos), Recall de **92.05%** (81 de 88 brigas detectadas), Precisão de 80.20%, F1-Score de 85.71% e AUC-ROC de 89.74%.
-* **Redução de Falsos Negativos:** Redução de **66,7% nos FNs** em relação ao baseline (de 21 para **7 lutas não detectadas**).
-* **Eficiência:** As 3 cabeças compartilham as features do mesmo backbone. O MobileNetV3 roda **apenas 1 vez por vídeo**, adicionando 8.8 ms de computação.
+* **Eficiência:** As 3 cabeças compartilham as features do mesmo backbone (o extrator roda apenas uma vez por vídeo).
 * **Artefatos:** Checkpoints em [`models/ensemble/`](models/ensemble/).
 
 ---
@@ -167,9 +160,6 @@ A área sob a curva ROC (AUC) expande consistentemente em cada iteração:
 * **Dual-Stream Latente:** $\text{AUC} = 0.883$
 * **Ensemble Cinético Tri-Stream:** $\text{AUC} = \mathbf{0.897}$
 
-### Painel Consolidado de Métricas
-![Dashboard Consolidado da Jornada](reports/jornada_evolutiva_3_modelos.png)
-
 ---
 
 ## 7. Perfil de Edge AI, Latência Real em CPU e Produção
@@ -215,72 +205,35 @@ cd surveillance-video-classifier
 pip install -r requirements.txt
 ```
 
-### 2. Inferência em Vídeo (Teste Prático)
-Para classificar o vídeo de demonstração (`sample_video.avi`) utilizando o **Modelo 3 (Ensemble Cinético SOTA - 85.41%)**:
+### 2. Inferência em Vídeo
+Executa a classificação sobre o vídeo de teste (`sample_video.avi`):
 ```bash
-python src/inference.py --video sample_video.avi --model ensemble
+# Inferência com o modelo padrão (Ensemble Cinético SOTA)
+python src/inference.py --video sample_video.avi
+
+# Opções de modelo: --model [ensemble|dualstream|baseline]
+# Opção de limiar:  --threshold 0.52
+# Exportar ONNX:    --export_onnx
 ```
 
-Para executar o **Modelo 2 (Dual-Stream Latente - 82.16%)**:
+### 3. Avaliação no Conjunto de Teste (185 Vídeos)
+Reavalia as métricas sobre as features cacheadas do split de teste cego:
 ```bash
-python src/inference.py --video sample_video.avi --model dualstream
-```
-
-Para executar o **Modelo 1 (Baseline Minimalista - 75.14%)**:
-```bash
-python src/inference.py --video sample_video.avi --model baseline
-```
-
-Para customizar o limiar operacional (exemplo: alta sensibilidade com $\theta = 0.40$):
-```bash
-python src/inference.py --video sample_video.avi --model ensemble --threshold 0.40
-```
-
-### 3. Avaliação Instantânea no Teste Cego (185 Vídeos Inéditos)
-O comando abaixo reavalia o conjunto de teste cego em menos de 1 segundo utilizando as features cacheadas:
-
-```bash
-# Avaliar Modelo 3 (Ensemble 85.41% Acc | 92.05% Recall | 7 FN)
+# Avaliação do Ensemble SOTA (padrão)
 python src/evaluate.py --model ensemble
 
-# Avaliar Modelo 2 (Dual-Stream 82.16% Acc | 88.64% Recall | 10 FN)
-python src/evaluate.py --model dualstream
-
-# Avaliar Modelo 1 (Baseline 75.14% Acc | 76.14% Recall | 21 FN)
-python src/evaluate.py --model baseline
+# Opções: --model [ensemble|dualstream|baseline]
 ```
 
-### 4. Treinamento Supervisionado do Modelo (Pipeline do Zero)
-Para treinar o modelo baseline do zero com caching de features, Early Stopping e ponderação de perda para mitigação de falsos negativos:
-
+### 4. Treinamento do Modelo (Pipeline do Zero)
+Treina o modelo com extração de features, Early Stopping e ponderação de perda para mitigação de falsos negativos:
 ```bash
 python src/train.py --epochs 20 --batch_size 32 --lr 0.001 --fight_weight 1.35 --patience 5
 ```
 
-* **`--epochs`**: Número máximo de épocas (padrão: 20).
-* **`--batch_size`**: Tamanho do lote (padrão: 32).
-* **`--lr`**: Taxa de aprendizado inicial gerenciada por Cosine Annealing (padrão: `1e-3`).
-* **`--fight_weight`**: Fator de penalização de Falsos Negativos na classe `Fight` (padrão: `1.35`).
-* **`--patience`**: Critério de parada antecipada no platô de `val_loss` (padrão: 5 épocas).
-
 *(Opcional) Para reconstruir as partições anti-leakage caso disponha do dataset bruto RWF-2000:*
 ```bash
 python src/create_splits.py
-```
-
-### 5. Reexecutar o Benchmark de Robustez Estatística (20 Runs por Modelo)
-```bash
-python benchmarks/benchmark_3_modelos_20_runs.py
-```
-
-### 6. Regenerar os Gráficos Comparativos da Evolução
-```bash
-python reports/generate_evolution_charts.py
-```
-
-### 7. Exportar Grafo para Edge AI (ONNX)
-```bash
-python src/inference.py --export_onnx
 ```
 
 ---
