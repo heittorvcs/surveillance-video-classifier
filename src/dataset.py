@@ -5,72 +5,89 @@ import pandas as pd
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+
+
+def sample_frames(video_path, num_frames=16):
+    """
+    Amostra num_frames quadros equidistantes de um video.
+
+    Usa grab() para avancar o cursor sem decodificar os quadros descartados e
+    retrieve()/read() apenas nos instantes selecionados. Retorna um array
+    (num_frames, 224, 224, 3) em RGB uint8.
+    """
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if total_frames <= 0:
+        total_frames = num_frames
+
+    indices = np.linspace(0, max(0, total_frames - 1), num_frames, dtype=int)
+    indices_set = set(indices.tolist())
+
+    frames = []
+    frame_idx = 0
+    while cap.isOpened() and len(frames) < num_frames:
+        if frame_idx in indices_set:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = cv2.resize(frame, (224, 224))
+            frames.append(frame)
+        else:
+            if not cap.grab():
+                break
+        frame_idx += 1
+    cap.release()
+
+    # Fallback caso o container falhe ou o clipe seja mais curto que o esperado
+    if len(frames) == 0:
+        frames = [np.zeros((224, 224, 3), dtype=np.uint8)] * num_frames
+    while len(frames) < num_frames:
+        frames.append(frames[-1])
+
+    return np.array(frames[:num_frames])
+
+
+def frames_to_tensor(frames, num_frames=16):
+    """Converte (T, H, W, C) uint8 RGB em tensor (T, C, H, W) normalizado (ImageNet)."""
+    normalize = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+    tensor = torch.from_numpy(np.ascontiguousarray(frames)).permute(0, 3, 1, 2).float() / 255.0
+    for t in range(num_frames):
+        tensor[t] = normalize(tensor[t])
+    return tensor
+
+
 class RWF2000Dataset(Dataset):
     """
-    Dataset simples e conciso para carregar videos do RWF-2000.
-    Amostra 16 frames equidistantes, redimensiona para 224x224 e normaliza.
+    Dataset do RWF-2000: 16 quadros equidistantes, 224x224, normalizacao ImageNet.
+
+    O flip horizontal e DETERMINISTICO (parametro `flip`), nao aleatorio. O motivo
+    e que o backbone e congelado e as features sao extraidas uma unica vez para
+    cache; um flip aleatorio nessa passada geraria uma perturbacao fixa por video,
+    nao um data augmentation. O augmentation efetivo e obtido materializando dois
+    caches (original e espelhado) e sorteando entre eles a cada epoca — ver
+    src/build_cache.py e src/train.py.
     """
-    def __init__(self, csv_file, num_frames=16, is_train=False):
+
+    def __init__(self, csv_file, num_frames=16, flip=False):
         self.df = pd.read_csv(csv_file)
         self.num_frames = num_frames
-        self.is_train = is_train
-        
-        # Normalizacao padrao ImageNet (C, H, W)
-        self.normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
+        self.flip = flip
 
     def __len__(self):
         return len(self.df)
 
-    def _load_frames(self, video_path):
-        cap = cv2.VideoCapture(video_path)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        if total_frames <= 0:
-            total_frames = self.num_frames
-
-        # Indices equidistantes para cobrir todo o clipe (5s)
-        indices = np.linspace(0, max(0, total_frames - 1), self.num_frames, dtype=int)
-        indices_set = set(indices)
-
-        frames = []
-        frame_idx = 0
-        while cap.isOpened() and len(frames) < self.num_frames:
-            if frame_idx in indices_set:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame = cv2.resize(frame, (224, 224))
-                frames.append(frame)
-            else:
-                if not cap.grab():
-                    break
-            frame_idx += 1
-        cap.release()
-
-        # Fallback caso falte frames (duplica o ultimo)
-        if len(frames) == 0:
-            frames = [np.zeros((224, 224, 3), dtype=np.uint8)] * self.num_frames
-        while len(frames) < self.num_frames:
-            frames.append(frames[-1])
-
-        return np.array(frames[:self.num_frames])  # (16, 224, 224, 3)
-
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        frames = self._load_frames(row["video_path"])  # shape: (16, 224, 224, 3)
+        frames = sample_frames(row["video_path"], self.num_frames)
 
-        # Data Augmentation: Flip horizontal consistente em todos os 16 frames
-        if self.is_train and np.random.rand() > 0.5:
-            frames = np.flip(frames, axis=2).copy()
+        # Flip horizontal aplicado de forma identica aos 16 quadros do clipe
+        if self.flip:
+            frames = np.flip(frames, axis=2)
 
-        # Converte para Tensor (T, C, H, W) e normaliza
-        tensor = torch.from_numpy(frames).permute(0, 3, 1, 2).float() / 255.0
-        for t in range(self.num_frames):
-            tensor[t] = self.normalize(tensor[t])
-
+        tensor = frames_to_tensor(frames, self.num_frames)
         label = torch.tensor(row["label"], dtype=torch.long)
         return tensor, label

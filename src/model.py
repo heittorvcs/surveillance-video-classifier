@@ -4,7 +4,7 @@ import torch.nn as nn
 from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 
 # ==============================================================================
-# MODELO 1 — BASELINE MINIMALISTA (75.14% Acc | 76.14% Rec | 21 FN)
+# MODELO 1 — BASELINE MINIMALISTA (teste cego: 75.14% Acc | 76.14% Rec | 21 FN)
 # ==============================================================================
 class VideoClassifier(nn.Module):
     """
@@ -69,7 +69,7 @@ BiGRU_Baseline = VideoClassifier
 
 
 # ==============================================================================
-# MODELO 2 — INOVAÇÃO DUAL-STREAM LATENTE (82.16% Acc | 88.64% Rec | 10 FN)
+# MODELO 2 — DUAL-STREAM LATENTE (teste cego: 82.16% Acc | 88.64% Rec | 10 FN)
 # ==============================================================================
 class VideoClassifierDualStream(nn.Module):
     """
@@ -146,7 +146,9 @@ class DualStream_Head(nn.Module):
 
 
 # ==============================================================================
-# MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM (85.41% Acc | 92.05% Rec | APENAS 7 FN)
+# MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM
+# Melhor checkpoint no teste: 85.41% Acc | 92.05% Rec | 7 FN.
+# Média de 20 comitês formados sem seleção: 81.11% ± 1.21% (ver README, seção 5).
 # ==============================================================================
 class TriStream_Kinetic(nn.Module):
     """Sub-modelo 1 do Ensemble: Aparência + Velocidade (Δf) + Aceleração de Impacto (Δ²f)"""
@@ -239,14 +241,105 @@ class KineticEnsembleClassifier(nn.Module):
 
 
 # ==============================================================================
+# REGISTRO DE CABEÇAS (fonte única para treino, benchmarks e avaliação)
+# ==============================================================================
+# As cabeças abaixo operam sobre features já extraídas do backbone congelado,
+# no formato (B, T=16, D=576). Treino, benchmarks e avaliação importam daqui —
+# nenhuma arquitetura é redefinida em outro arquivo.
+
+HEAD_REGISTRY = {
+    "baseline":   (BiGRU_Head,          "Modelo 1: Baseline Bi-GRU"),
+    "dualstream": (DualStream_Head,     "Modelo 2: Dual-Stream Latente"),
+    "tristream":  (TriStream_Kinetic,   "Modelo 3: Tri-Stream Cinético"),
+    "dualmeanmax": (DualStream_MeanMax, "Dual-Stream Mean+Max (membro do ensemble)"),
+}
+
+
+def build_head(arch):
+    """Instancia uma cabeça pelo nome. Retorna (modulo, descricao)."""
+    key = arch.lower()
+    if key not in HEAD_REGISTRY:
+        raise ValueError(
+            f"Arquitetura desconhecida: '{arch}'. Disponíveis: {sorted(HEAD_REGISTRY)}"
+        )
+    cls, desc = HEAD_REGISTRY[key]
+    return cls(), desc
+
+
+class EnsembleHead(nn.Module):
+    """
+    Comitê das 3 cabeças do Modelo 3 sobre features pré-extraídas.
+
+    Retorna a média das probabilidades de softmax dos membros. Usado por
+    src/evaluate.py, src/calibrate_threshold.py e benchmarks/, para que a
+    lógica de fusão exista em um único lugar.
+    """
+
+    def __init__(self, members=None):
+        super().__init__()
+        if members is None:
+            members = [TriStream_Kinetic(), DualStream_MeanMax(), DualStream_MeanMax()]
+        self.members = nn.ModuleList(members)
+
+    def forward(self, x):
+        probs = [torch.softmax(m(x), dim=1) for m in self.members]
+        return torch.stack(probs, dim=0).mean(dim=0)
+
+
+ENSEMBLE_MEMBER_FILES = [
+    ("model_tristream_s7.pth", TriStream_Kinetic),
+    ("model_dualmeanmax_s5.pth", DualStream_MeanMax),
+    ("model_dualmeanmax_s10.pth", DualStream_MeanMax),
+]
+
+ENSEMBLE_SEARCH_DIRS = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
+
+
+def resolve_weights(filename, subfolders):
+    """Primeiro caminho existente para `filename` dentre `subfolders`."""
+    for sub in subfolders:
+        full = os.path.join(sub, filename)
+        if os.path.exists(full):
+            return full
+    raise FileNotFoundError(
+        f"Pesos não encontrados para '{filename}' em: {', '.join(subfolders)}"
+    )
+
+
+def load_ensemble_head(device="cpu", subfolders=None):
+    """Carrega o EnsembleHead com os checkpoints dos 3 membros."""
+    subfolders = subfolders or ENSEMBLE_SEARCH_DIRS
+    members = []
+    for filename, cls in ENSEMBLE_MEMBER_FILES:
+        member = cls()
+        member.load_state_dict(torch.load(resolve_weights(filename, subfolders), map_location=device))
+        members.append(member)
+    model = EnsembleHead(members).to(device)
+    model.eval()
+    return model
+
+
+# ==============================================================================
 # FACTORY HELPER PARA CARREGAMENTO AUTOMÁTICO
 # ==============================================================================
+# Limiares de decisão padrão por modelo.
+# ATENÇÃO: o limiar do ensemble (0.52) foi originalmente escolhido observando o
+# split de TESTE, o que caracteriza seleção de modelo com informação do teste.
+# Use src/calibrate_threshold.py para recalibrá-lo sobre o split de VALIDAÇÃO
+# antes de reportar qualquer métrica como estimativa não enviesada.
+DEFAULT_THRESHOLDS = {
+    "baseline": 0.50,
+    "dualstream": 0.50,
+    "ensemble": 0.52,
+}
+
+
 def load_classifier(model_name="ensemble", device="cpu", custom_path=None):
     """
     Carrega o classificador solicitado com seus respectivos pesos pré-treinados:
-    - 'baseline'   -> Modelo 1 (Bi-GRU Simples, 75.14% Acc, th=0.50)
-    - 'dualstream' -> Modelo 2 (Dual-Stream Latente, 82.16% Acc, th=0.50)
-    - 'ensemble'   -> Modelo 3 (Ensemble Cinético Tri-Stream, 85.41% Acc, th=0.52)
+    - 'baseline'   -> Modelo 1 (Bi-GRU simples)
+    - 'dualstream' -> Modelo 2 (Dual-Stream Latente)
+    - 'ensemble'   -> Modelo 3 (Ensemble Cinético Tri-Stream)
     """
     model_name = model_name.lower()
     
@@ -257,7 +350,7 @@ def load_classifier(model_name="ensemble", device="cpu", custom_path=None):
             raise FileNotFoundError(f"Pesos do Baseline não encontrados em: {path}")
         model.load_state_dict(torch.load(path, map_location=device))
         model.eval()
-        default_th = 0.50
+        default_th = DEFAULT_THRESHOLDS["baseline"]
         return model, default_th, "Baseline Minimalista (Bi-GRU)"
         
     elif model_name == "dualstream":
@@ -273,27 +366,19 @@ def load_classifier(model_name="ensemble", device="cpu", custom_path=None):
             raise FileNotFoundError("Pesos do DualStream não encontrados em models/ ou experiments/")
         model.load_state_dict(torch.load(path, map_location=device))
         model.eval()
-        default_th = 0.50
+        default_th = DEFAULT_THRESHOLDS["dualstream"]
         return model, default_th, "Dual-Stream Latente (Aparência + Velocidade)"
         
     elif model_name in ["ensemble", "tristream", "kinetic"]:
         model = KineticEnsembleClassifier().to(device)
-        def resolve_path(filename, subfolders):
-            for sub in subfolders:
-                full = os.path.join(sub, filename)
-                if os.path.exists(full):
-                    return full
-            raise FileNotFoundError(f"Pesos do Ensemble não encontrados para: {filename}")
-            
-        subfolders = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
-        p1 = resolve_path("model_tristream_s7.pth", subfolders)
-        p2 = resolve_path("model_dualmeanmax_s5.pth", subfolders)
-        p3 = resolve_path("model_dualmeanmax_s10.pth", subfolders)
+        p1 = resolve_weights("model_tristream_s7.pth", ENSEMBLE_SEARCH_DIRS)
+        p2 = resolve_weights("model_dualmeanmax_s5.pth", ENSEMBLE_SEARCH_DIRS)
+        p3 = resolve_weights("model_dualmeanmax_s10.pth", ENSEMBLE_SEARCH_DIRS)
         model.m1.load_state_dict(torch.load(p1, map_location=device))
         model.m2.load_state_dict(torch.load(p2, map_location=device))
         model.m3.load_state_dict(torch.load(p3, map_location=device))
         model.eval()
-        default_th = 0.52
-        return model, default_th, "Ensemble Cinético Tri-Stream (SOTA 85.41%)"
+        default_th = DEFAULT_THRESHOLDS["ensemble"]
+        return model, default_th, "Ensemble Cinético Tri-Stream (melhor checkpoint)"
     else:
         raise ValueError(f"Modelo desconhecido: '{model_name}'. Escolha entre: 'baseline', 'dualstream', 'ensemble'.")
