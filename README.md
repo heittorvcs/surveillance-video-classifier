@@ -57,54 +57,18 @@ Para evitar isso implementei o [`src/create_splits.py`](src/create_splits.py) um
 
 ---
 
-## 3. A Jornada Evolutiva dos 3 Modelos
+## 3. Comparação dos 3 Modelos
 
-Para superar as limitações das abordagens triviais (que ficavam estagnadas entre 73% e 75%), o projeto foi conduzido através de uma jornada estruturada em 3 saltos arquiteturais e conceituais:
+ Inicialmente ficamos num patamar entre 73% e 75%, o projeto foi conduzido testando outros modelos para conseguir um desempenho melhor:
 
-```mermaid
-graph LR
-    subgraph M1["Modelo 1: Baseline Minimalista"]
-        A1["Vídeo (16 frames)"] --> B1["MobileNetV3 Congelado"]
-        B1 --> C1["Bi-GRU Padrão<br/>(Aparência Estática)"]
-        C1 --> D1["Acc: 75.14% | Rec: 76.14%<br/>21 Falsos Negativos"]
-    end
-
-    subgraph M2["Modelo 2: Dual-Stream Latente"]
-        A2["Vídeo (16 frames)"] --> B2["MobileNetV3 Congelado"]
-        B2 --> C2_1["Stream 1: Aparência (f_t)"]
-        B2 --> C2_2["Stream 2: Velocidade Δf_t<br/>(f_t - f_{t-1})"]
-        C2_1 --> D2["Fusão Dual Bi-GRU"]
-        C2_2 --> D2
-        D2 --> E2["Acc: 82.16% | Rec: 88.64%<br/>10 Falsos Negativos"]
-    end
-
-    subgraph M3["Modelo 3: Ensemble Cinético Tri-Stream"]
-        A3["Vídeo (16 frames)"] --> B3["MobileNetV3 Congelado<br/>(1 Única Execução!)"]
-        B3 --> C3_1["M1: TriStream Cinético<br/>(f, Δf, Δ²f Aceleração)"]
-        B3 --> C3_2["M2: DualStream MeanMax<br/>(Seed 5)"]
-        B3 --> C3_3["M3: DualStream MeanMax<br/>(Seed 10)"]
-        C3_1 --> D3["Fusão Probabilística<br/>(θ = 0.52 Calibrado)"]
-        C3_2 --> D3
-        C3_3 --> D3
-        D3 --> E3["Acc: 85.41% | Rec: 92.05%<br/>APENAS 7 Falsos Negativos!"]
-    end
-
-    M1 -.->|"Viés Indutivo de Velocidade"| M2
-    M2 -.->|"Cinética de Impacto + Ensemble"| M3
-
-    style M1 fill:#ebf5fb,stroke:#2980b9,stroke-width:2px
-    style M2 fill:#fef9e7,stroke:#f39c12,stroke-width:2px
-    style M3 fill:#eafaf1,stroke:#27ae60,stroke-width:3px
-```
-
-### 1. MODELO 1 — BASELINE MINIMALISTA (75.14% Acc | 76.14% Rec | 21 FN)
+### 1. MODELO 1 — BASELINE (75.14% Acc | 76.14% Rec | 21 FN)
 * **Arquitetura:** Backbone MobileNetV3-Small pré-treinado em ImageNet e congelado + Bi-GRU temporal simples (hidden=64, 128 dim após bidirecionalidade) com pooling médio temporal.
 * **Propósito:** Estabelecer a linha de base do edital e validar o pipeline anti-leakage.
 * **Diagnóstico Crítico:** O modelo analisa apenas as features estáticas $f_t$ de cada quadro. Sem noção explícita de velocidade ou deslocamento, ele tem dificuldade de distinguir pessoas gesticulando vigorosamente de agressões reais, deixando escapar **21 lutas violentas** (FN).
-* **Latência:** ~75 ms em CPU (~69.2 ms no teste local) | 1.17M parâmetros.
+* **Latência:** ~75 ms em CPU | 1.17M parâmetros.
 * **Artefatos:** Checkpoint em [`models/best_model.pth`](models/best_model.pth) | ONNX em [`models/model.onnx`](models/model.onnx).
 
-### 2. MODELO 2 — INOVAÇÃO DUAL-STREAM LATENTE (82.16% Acc | 88.64% Rec | 10 FN)
+### 2. MODELO 2 — DUAL-STREAM (82.16% Acc | 88.64% Rec | 10 FN)
 * **Arquitetura:** MobileNetV3-Small + Dupla Bi-GRU operando simultaneamente sobre:
   * **Stream de Aparência:** Sequência de embeddings visuais $f_t \in \mathbb{R}^{576}$.
   * **Stream de Movimento Latente:** Gradiente diferencial temporal de primeira ordem $\Delta f_t = f_t - f_{t-1}$, capturando a **velocidade** das mudanças de postura no espaço latente.
@@ -130,7 +94,7 @@ graph LR
 
 Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial (185 vídeos não vistos, sendo 88 `Fight` e 97 `NonFight`):
 
-| Métrica / Dimensão | Modelo 1: Baseline Minimalista | Modelo 2: Inovação Dual-Stream | Modelo 3: Ensemble Cinético (SOTA) | Delta Evolutivo (M1 $\rightarrow$ M3) |
+| Métrica / Dimensão | Modelo 1: Baseline | Modelo 2: Dual-Stream | Modelo 3: Ensemble Cinético (SOTA) | Delta Evolutivo (M1 $\rightarrow$ M3) |
 | :--- | :---: | :---: | :---: | :---: |
 | **Acurácia Global (Accuracy)** | 75.14% (139/185) | 82.16% (152/185) | **85.41% (158/185)** | **+10.27 pp** |
 | **Sensibilidade (Recall Fight)** | 76.14% (67/88) | 88.64% (78/88) | **92.05% (81/88)** | **+15.91 pp** |
@@ -151,8 +115,8 @@ Abaixo, a comparação rigorosa dos 3 modelos no conjunto de teste cego oficial 
 
 ## 5. Validação Estatística: 20 Execuções por Arquitetura (60 Treinamentos)
 
-Para comprovar formalmente que os ganhos de acurácia e recall **não decorrem de uma semente aleatória de sorte (*seed mining*)**, executou-se um protocolo experimental padronizado:
-* **20 sementes aleatórias independentes** (Seed 1 a 20) treinadas do zero para **cada uma das 3 arquiteturas** (totalizando 60 treinamentos supervisionados completos).
+Para comprovar formalmente que os ganhos de acurácia e recall são reais e não obtidos por meio de uma seed com melhor desempenho, executei um protocolo de testes padronizado:
+* **20 sementes aleatórias** treinadas do zero para **cada uma das 3 arquiteturas**.
 * Mesmo critério de parada (*Early Stopping* com paciência de 5 épocas baseado na perda de validação `val_loss`).
 * Mesma função de custo ponderada penalizando falsos negativos (`fight_weight = 1.35`), otimizador `AdamW` e agendador `CosineAnnealingLR`.
 * Avaliação cega e imutável sobre os mesmos 185 vídeos inéditos do split de teste.
@@ -186,77 +150,8 @@ A dinâmica de convergência foi rigorosamente monitorada para assegurar equilí
   * **Camadas de Regularização:** Inclusão de `Dropout(0.4)` nas cabeças GRU e regularização L2 via `weight_decay = 1e-4` no otimizador AdamW.
   * **Early Stopping com Paciência:** O critério de salvamento e parada antecipada monitora estritamente a perda de validação (`val_loss`, `patience=5`). Como demonstrado nas curvas acima, quando o modelo atinge o ponto de saturação na validação, o treinamento é interrompido e o melhor checkpoint histórico é restaurado, impedindo a degradação por memorização tardia.
 
----
 
-## 6. O Segredo Físico: Da Aparência Estática à Aceleração Cinética
-
-Por que as tentativas convencionais de ajuste fino (*fine-tuning*) e redes 1D falhavam em ultrapassar 75%? Porque **violência física é um fenômeno essencialmente cinético**, não estático. 
-
-Duas pessoas se abraçando ou dançando possuem aparência visual estática quase idêntica a duas pessoas brigando. O que as diferencia categoricamente no mundo real são as grandezas da mecânica clássica: **velocidade** e **aceleração brusca de impacto**.
-
-```mermaid
-flowchart TD
-    subgraph P["Nível Físico dos Pixels (Conv2D)"]
-        F0["Quadro t-1"] --> BB["Backbone MobileNetV3-Small"]
-        F1["Quadro t"]   --> BB
-        F2["Quadro t+1"] --> BB
-    end
-
-    subgraph L["Nível Latente (Espaço Semântico 576-dim)"]
-        BB --> FT0["Vetor Semântico f_{t-1}"]
-        BB --> FT1["Vetor Semântico f_t"]
-        BB --> FT2["Vetor Semântico f_{t+1}"]
-    end
-
-    subgraph C["Nível Cinético (Ordens Temporais de Movimento)"]
-        FT1 --> S1["1ª Ordem: Posição / Aparência (f_t)<br/>Identifica atores, objetos e contexto"]
-        
-        FT1 -.->|"Diferença Finita"| SUB1["Δf_t = f_t - f_{t-1}"]
-        FT0 -.-> SUB1
-        SUB1 --> S2["2ª Ordem: Velocidade Cinética (Δf_t)<br/>Identifica deslocamento rápido e golpes"]
-        
-        SUB1 -.->|"Diferença Finita"| SUB2["Δ²f_t = Δf_{t+1} - Δf_t"]
-        FT2 -.-> SUB2
-        SUB2 --> S3["3ª Ordem: Aceleração de Impacto (Δ²f_t)<br/>Identifica colisões corporais e solavancos"]
-    end
-
-    subgraph G["Modelagem Recorrente (Bi-GRUs Dedicadas)"]
-        S1 --> GRU1["Bi-GRU Aparência (128d)"]
-        S2 --> GRU2["Bi-GRU Velocidade (128d)"]
-        S3 --> GRU3["Bi-GRU Aceleração (128d)"]
-    end
-
-    subgraph AG["Agregação Temporal e Decisão"]
-        GRU1 --> AGG["Mean + Max Pooling Temporal (Picos de Intensidade)"]
-        GRU2 --> AGG
-        GRU3 --> AGG
-        AGG --> CLF["Classificador Não-Linear Multicamadas"]
-        CLF --> OUT["Probabilidade Calibrada de Violência"]
-    end
-
-    style P fill:#f8f9fa,stroke:#bdc3c7
-    style L fill:#edf2f7,stroke:#a0aec0
-    style C fill:#fef9e7,stroke:#f39c12,stroke-width:2px
-    style G fill:#ebf5fb,stroke:#3498db,stroke-width:2px
-    style AG fill:#eafaf1,stroke:#2ecc71,stroke-width:2px
-```
-
-### Por que NÃO calcular Optical Flow em Pixels?
-Sistemas acadêmicos tradicionais calculam Fluxo Óptico denso (ex: TV-L1, Gunnar Farneback) diretamente sobre a grade de pixels. Embora capture movimento, essa abordagem é **proibitiva para Edge AI**:
-* O cálculo de Optical Flow em pixels consome entre **200 ms e 600 ms por par de quadros** em CPU.
-* Inviabiliza completamente sistemas de baixo custo ou monitoramento de múltiplas câmeras em tempo real.
-
-### A Ruptura de Engenharia: Diferenciação no Espaço Latente
-A nossa abordagem calcula as derivadas temporais **após o Global Average Pooling do MobileNetV3**:
-$$\Delta f_t = f_t - f_{t-1} \quad (\text{Velocidade Diferencial Latente})$$
-$$\Delta^2 f_t = \Delta f_t - \Delta f_{t-1} \quad (\text{Aceleração Cinética de Impacto})$$
-* O vetor de características possui dimensão compacta ($576$).
-* A subtração vetorial no espaço latente é executada em **frações de microssegundo** ($< 0.05\text{ ms}$).
-* Injeta o viés indutivo da física newtoniana na rede neural com **custo computacional praticamente ZERO**!
-
----
-
-## 7. Matrizes de Confusão e Curvas ROC Lado a Lado
+## 6. Matrizes de Confusão e Curvas ROC Lado a Lado
 
 O salto qualitativo da jornada evolutiva fica evidente na comparação direta das matrizes de confusão e curvas ROC obtidas no teste cego oficial:
 
@@ -280,7 +175,7 @@ A área sob a curva ROC (AUC) expande consistentemente em cada iteração:
 
 ---
 
-## 8. Perfil de Edge AI, Latência Real em CPU e Produção
+## 7. Perfil de Edge AI, Latência Real em CPU e Produção
 
 Para validar a viabilidade de implantação em servidores locais (*on-premises*) e microcomputadores industriais sem GPU dedicada (ex: Raspberry Pi 5, Intel NUC, Jetson Nano), realizou-se uma decomposição de latência de inferência rodando em CPU comum (processando os 16 quadros $224 \times 224$ de ponta a ponta):
 
@@ -294,8 +189,6 @@ Para validar a viabilidade de implantação em servidores locais (*on-premises*)
 | **Cabeça Modelo 2 (Dual Bi-GRU)** | 2.85 ms | 3.1% | M2 End-to-End: **88.31 ms** |
 | **Cabeças Modelo 3 (3 modelos do Ensemble)** | **8.81 ms** | 9.6% | M3 End-to-End: **73.29 ms** (P95: 84.3 ms) |
 
-> ⚡ **Por que o Ensemble de 3 modelos roda em apenas ~73 ms?**  
-> Porque mais de 85% do custo computacional de um modelo de vídeo reside no backbone convolucional 2D. Ao manter o backbone compartilhado e extrair as features latentes de 576 dimensões uma única vez, alimentar 3 cabeças recorrentes leves acrescenta menos de **9 milissegundos**. O ganho de robustez é imenso com impacto desprezível na latência.
 
 ### Exportação para Padrão Aberto ONNX
 O modelo foi exportado com sucesso para ONNX com grafos estáticos otimizados:
@@ -304,20 +197,20 @@ O modelo foi exportado com sucesso para ONNX com grafos estáticos otimizados:
 
 ---
 
-## 9. Engenharia de Limiares e Políticas de Segurança
+## 8. Engenharia de Limiares e Políticas de Segurança
 
 A probabilidade bruta de saída não deve ser tratada como uma "caixa preta" engessada em $\theta = 0.50$. Conforme o perfil e o nível de risco da operação, o limiar de decisão operacional pode ser calibrado:
 
-| Política Operacional | Limiar ($\theta$) | Recall Fight | Precisão Fight | Falsos Negativos (FN) | Aplicação Típica |
+| Política Operacional | Limiar ($\theta$) | Recall Fight | Precisão Fight | Falsos Negativos (FN) | 
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Tolerância Zero a Falhas** | $\theta = 0.35$ | **96.59%** | 68.00% | **Apenas 3 lutas perdidas** | Presídios, bancos e eventos críticos |
-| **Equilíbrio Calibrado (SOTA)** | **$\theta = 0.52$** | **92.05%** | **80.20%** | **7 lutas perdidas** | **CFTV Urbano e Patrimonial Padrão** |
-| **Filtro Estrito Antialarme Falso**| $\theta = 0.65$ | 82.95% | **88.00%** | 15 lutas perdidas | Centrais com equipe humana reduzida |
+| **Tolerância Zero a Falhas** | $\theta = 0.35$ | **96.59%** | 68.00% | **Apenas 3 lutas perdidas** |
+| **Equilíbrio Calibrado (SOTA)** | **$\theta = 0.52$** | **92.05%** | **80.20%** | **7 lutas perdidas** |
+| **Filtro Estrito Antialarme Falso**| $\theta = 0.65$ | 82.95% | **88.00%** | 15 lutas perdidas | 
 
 
 ---
 
-## 10. Guia de Reprodução Rápida (CLI)
+## 9. Guia de Reprodução Rápida (CLI)
 
 ### 1. Clonagem e Configuração do Ambiente
 ```bash
