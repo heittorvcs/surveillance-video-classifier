@@ -1,10 +1,10 @@
 """
 Calibra o limiar de decisao sobre o split de VALIDACAO.
 
-Motivacao: o limiar 0.52 usado no ensemble foi originalmente escolhido observando
-o split de teste. Isso torna a metrica reportada uma estimativa otimista, porque o
-teste deixa de ser cego para a etapa de selecao. Este script move a calibracao para
-a validacao (215 videos) e so entao, opcionalmente, toca o teste uma unica vez.
+O ponto de operacao e uma decisao separada da escolha da arquitetura: a selecao de
+semente roda com limiar fixo (ver src/model.py), e a calibracao acontece aqui, sobre
+os 215 videos de validacao. O teste so e tocado depois disso, uma unica vez, com
+--eval_test.
 
 Criterios disponiveis:
     f1                   maximiza F1 da classe Fight

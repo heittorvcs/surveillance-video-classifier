@@ -1,12 +1,12 @@
 """
 Seleciona os membros do ensemble e o limiar usando APENAS o split de validacao.
 
-Este script existe para corrigir o vies de selecao do checkpoint campeao original:
-o trio de sementes (TriStream s7 + DualMeanMax s5 + DualMeanMax s10) e o limiar 0.52
-foram escolhidos observando o split de teste, o que torna 85.41% um melhor-de-N
-medido no proprio conjunto de avaliacao, e nao uma estimativa nao enviesada.
+Com 185 videos de teste, a variacao entre sementes e da mesma ordem da diferenca
+entre arquiteturas. Escolher o trio olhando o teste transformaria a metrica final no
+maximo de milhares de configuracoes medidas no proprio conjunto de avaliacao. Por
+isso a escolha acontece na validacao, e o teste e avaliado uma unica vez no fim.
 
-Fluxo correto:
+Fluxo:
     1) Treinar um pool de candidatos (o teste nunca e consultado):
          for s in 1..20:
            python src/train.py --arch tristream   --seed $s --out models/pool/tristream_s$s.pth

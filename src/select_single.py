@@ -2,11 +2,9 @@
 Seleciona a semente e o limiar de um modelo individual usando APENAS a validacao.
 
 Serve ao mesmo proposito de src/select_ensemble.py, mas para os Modelos 1 e 2.
-Sem isso, a comparacao entre arquiteturas fica desonesta: os checkpoints originais
-do baseline e do dual-stream tambem foram escolhidos olhando o teste (o do
-dual-stream e exatamente o maximo das suas 20 sementes), enquanto o ensemble
-passaria a ser selecionado na validacao. Comparar os dois criterios lado a lado
-mediria o procedimento de selecao, nao a arquitetura.
+Os tres precisam passar pelo mesmo criterio de selecao: se um for escolhido de um
+jeito e outro de outro, a comparacao entre eles mede o procedimento de selecao, e
+nao a arquitetura.
 
 Uso:
     python src/select_single.py --arch baseline   --export

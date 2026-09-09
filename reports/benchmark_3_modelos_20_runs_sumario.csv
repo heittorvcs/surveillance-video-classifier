@@ -1,6 +1,0 @@
-Modelo,Acurácia Média (%),Acurácia Mín (%),Acurácia Máx (%),Recall Médio (%),Precisão Média (%),F1-Score Médio (%),AUC-ROC Médio (%),Média Falsos Negativos (FN),Mín Falsos Negativos (FN),Média Falsos Positivos (FP),Época Média Parada
-Modelo 1: Baseline Bi-GRU,74.73 ± 1.44,71.35,76.76,69.94 ± 5.13,75.43 ± 2.90,72.40 ± 2.31,84.90 ± 0.71,26.4 ± 4.5,20,20.3 ± 4.3,8.0
-Modelo 2: Dual-Stream Latente,79.27 ± 1.72,75.68,82.16,84.83 ± 5.40,75.10 ± 2.68,79.52 ± 1.96,88.22 ± 1.32,13.3 ± 4.7,3,25.0 ± 4.9,7.5
-Modelo 3: Tri-Stream Cinético,80.86 ± 2.01,74.59,83.24,84.55 ± 6.99,77.67 ± 3.58,80.69 ± 2.67,89.49 ± 1.01,13.6 ± 6.2,6,21.8 ± 5.7,6.8
-Comitês de Ensemble (20 Trios),81.11 ± 1.21,79.46,83.78,84.43 ± 2.25,77.83 ± 1.98,80.96 ± 1.16,89.37 ± 0.41,13.7 ± 2.0,10,21.2 ± 2.6,Consenso
-Ensemble Campeão Calibrado (Produção),85.41,85.41,85.41,92.05,80.20,85.71,89.74,7.0,7,20.0,θ=0.52

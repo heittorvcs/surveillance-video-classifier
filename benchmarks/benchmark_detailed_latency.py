@@ -1,11 +1,10 @@
 """
 Perfil de latencia em CPU dos tres modelos, medidos sob o MESMO protocolo.
 
-A tabela anterior do README misturava medicoes feitas em execucoes distintas, o
-que produziu o resultado incoerente de o ensemble (backbone + 3 cabecas) aparecer
-mais rapido que o dual-stream (backbone + 2 GRUs). Aqui os tres passam pelo mesmo
-laco, na mesma maquina, na mesma execucao, e o custo de decodificacao do video e
-medido separadamente em vez de omitido.
+Os tres modelos passam pelo mesmo laco, na mesma maquina e na mesma execucao:
+medicoes feitas em execucoes distintas nao sao comparaveis entre si. O custo de
+decodificacao do video e medido separadamente do forward, porque so a soma dos dois
+representa o custo real por clipe.
 
 Saida: reports/latency_benchmark.json e uma tabela no terminal.
 

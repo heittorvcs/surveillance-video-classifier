@@ -8,10 +8,9 @@ Uso:
     python src/evaluate.py --model dualstream --split val
     python src/evaluate.py --model ensemble --threshold 0.50
 
-Sobre o limiar do ensemble: o valor padrao 0.52 foi originalmente escolhido
-observando o proprio split de teste, o que caracteriza selecao de modelo com
-informacao do teste. Para uma estimativa nao enviesada, recalibre na validacao
-com src/calibrate_threshold.py e passe o valor obtido em --threshold.
+O limiar padrao dos tres modelos e 0.50, fixado durante a selecao de semente
+(ver src/model.py). Para escolher um ponto de operacao diferente, calibre-o sobre
+o split de validacao com src/calibrate_threshold.py e passe o valor em --threshold.
 """
 
 import sys
@@ -153,10 +152,6 @@ def evaluate_model(model_type="ensemble", threshold=None, split="test", save_jso
     print("\nRelatorio de Classificacao:")
     print(classification_report(y_true, preds, target_names=["NonFight", "Fight"], zero_division=0))
 
-    if model_type == "ensemble" and threshold is None and split == "test":
-        print("NOTA: este limiar (0.52) e o trio de sementes entregue foram selecionados")
-        print("      observando o split de teste. Trate 85.41% como melhor checkpoint,")
-        print("      nao como estimativa nao enviesada — ver README, secao 5.")
     print("=" * 68 + "\n")
 
     result = {

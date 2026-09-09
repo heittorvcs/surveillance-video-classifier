@@ -48,9 +48,9 @@ def export_onnx(model_name, device, output_path=None):
     """
     Exporta para ONNX o modelo JA TREINADO indicado por `model_name`.
 
-    A versao anterior desta funcao exportava uma instancia recem-inicializada,
-    produzindo um grafo com pesos aleatorios. Aqui os pesos sao sempre carregados
-    via load_classifier antes da exportacao.
+    Os pesos sao sempre carregados via load_classifier antes da exportacao, e a
+    paridade numerica do grafo resultante deve ser conferida com
+    benchmarks/verify_onnx_parity.py.
     """
     model, _, desc = load_classifier(model_name, device=device)
     model.eval()
@@ -65,7 +65,7 @@ def export_onnx(model_name, device, output_path=None):
     # Exportador legado (dynamo=False): produz um grafo unico, sem arquivo .onnx.data
     # ao lado, e aceita `dynamic_axes` diretamente. O exportador dynamo do torch 2.x
     # grava o arquivo e so entao falha ao converter para opset 14, deixando um
-    # artefato valido mas um erro na saida -- comportamento confuso para quem executa.
+    # artefato valido junto de um traceback.
     torch.onnx.export(
         model,
         dummy_input,

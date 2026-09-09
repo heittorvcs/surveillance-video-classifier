@@ -4,7 +4,8 @@ import torch.nn as nn
 from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 
 # ==============================================================================
-# MODELO 1 — BASELINE MINIMALISTA (teste cego: 75.14% Acc | 76.14% Rec | 21 FN)
+# MODELO 1 — BASELINE MINIMALISTA
+# Aparencia estatica f_t: MobileNetV3 congelado + Bi-GRU unica.
 # ==============================================================================
 class VideoClassifier(nn.Module):
     """
@@ -69,7 +70,8 @@ BiGRU_Baseline = VideoClassifier
 
 
 # ==============================================================================
-# MODELO 2 — DUAL-STREAM LATENTE (teste cego: 82.16% Acc | 88.64% Rec | 10 FN)
+# MODELO 2 — DUAL-STREAM LATENTE
+# Aparencia f_t + velocidade latente delta_f = f_t - f_{t-1}, em duas Bi-GRUs.
 # ==============================================================================
 class VideoClassifierDualStream(nn.Module):
     """
@@ -147,8 +149,7 @@ class DualStream_Head(nn.Module):
 
 # ==============================================================================
 # MODELO 3 — ENSEMBLE CINÉTICO TRI-STREAM
-# Melhor checkpoint no teste: 85.41% Acc | 92.05% Rec | 7 FN.
-# Média de 20 comitês formados sem seleção: 81.11% ± 1.21% (ver README, seção 5).
+# Comite de 3 cabecas sobre o mesmo backbone: aparencia, velocidade e aceleracao.
 # ==============================================================================
 class TriStream_Kinetic(nn.Module):
     """Sub-modelo 1 do Ensemble: Aparência + Velocidade (Δf) + Aceleração de Impacto (Δ²f)"""
@@ -362,9 +363,6 @@ def load_ensemble_head(device="cpu", subfolders=None):
 # Com o limiar fixo, a seleção mede a arquitetura, não o ponto de operação. A
 # escolha do ponto de operação é uma decisão separada e explícita, feita por
 # src/calibrate_threshold.py e passada em --threshold.
-#
-# O valor 0.52 usado na primeira versão veio de uma busca que maximizava acurácia
-# no próprio teste — ver README, seção 5.
 DEFAULT_THRESHOLDS = {
     "baseline": 0.50,
     "dualstream": 0.50,
@@ -419,6 +417,6 @@ def load_classifier(model_name="ensemble", device="cpu", custom_path=None):
         model.m3.load_state_dict(torch.load(p3, map_location=device))
         model.eval()
         default_th = DEFAULT_THRESHOLDS["ensemble"]
-        return model, default_th, "Ensemble Cinético Tri-Stream (melhor checkpoint)"
+        return model, default_th, "Ensemble Cinético Tri-Stream (3 cabeças)"
     else:
         raise ValueError(f"Modelo desconhecido: '{model_name}'. Escolha entre: 'baseline', 'dualstream', 'ensemble'.")

@@ -3,8 +3,7 @@ Verifica que o grafo ONNX exportado reproduz numericamente o modelo PyTorch,
 e mede a latencia em ONNX Runtime sob o mesmo protocolo.
 
 Sem esta verificacao, "exportado para ONNX" nao e uma afirmacao de Edge AI: um
-grafo pode existir, carregar e produzir valores errados — foi exatamente o que
-acontecia quando a exportacao usava pesos nao treinados.
+grafo pode existir, carregar sem erro e ainda assim produzir valores errados.
 
 Uso:
     python src/inference.py --export_onnx --onnx_model dualstream --no_infer

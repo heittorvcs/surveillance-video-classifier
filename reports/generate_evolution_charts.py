@@ -168,7 +168,7 @@ for bar, fn in zip(bars, fns):
     yval = bar.get_height()
     ax_a.text(bar.get_x() + bar.get_width()/2.0, yval + 0.6, f"{fn} FN", ha="center", va="bottom", fontsize=11, fontweight="bold")
 _reducao = (1 - fns[2] / fns[0]) * 100 if fns[0] else 0.0
-ax_a.annotate(f"Redução de {_reducao:.1f}% nos FN\n(melhor checkpoint: {fns[2]} FN)",
+ax_a.annotate(f"Redução de {_reducao:.1f}% nos FN\n(Modelo 1: {fns[0]} → Modelo 3: {fns[2]})",
              xy=(2, fns[2]), xytext=(1.0, 16),
              arrowprops=dict(arrowstyle="->", color="#c0392b", lw=2),
              fontsize=10, fontweight="bold", color="#c0392b",
