@@ -8,7 +8,17 @@
 
 ## Pré-gravação — checklist
 
-- [ ] `python src/build_cache.py` executado
+**Primeiro de tudo: ativar o ambiente.** O Python do sistema não tem PyTorch instalado; sem ativar o `.venv`, todo comando ao vivo falha com `ModuleNotFoundError`.
+
+```powershell
+cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-video-classifier"
+.\.venv\Scripts\Activate.ps1
+```
+
+O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import torch; print(torch.__version__)"`.
+
+- [ ] Ambiente ativado, com `(.venv)` visível no prompt
+- [ ] `data/cache/features_{train,val,test}.pt` presentes — não são versionados, e `evaluate.py` depende deles
 - [ ] `python tests/test_splits.py` passando — vai rodar na tela no minuto 1:00
 - [ ] `python src/evaluate.py --model ensemble` rodando de verdade na máquina de gravação
 - [ ] `python src/inference.py --video sample_video.avi --label Fight` testado
