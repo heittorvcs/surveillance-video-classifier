@@ -220,13 +220,59 @@ Mecanismos empregados:
 
 ---
 
-## 6. Matrizes de confusão e curvas ROC
+## 6. Matrizes de confusão, curvas ROC e análise dos erros
 
 ![Matrizes de confusão](reports/matrizes_confusao_3_modelos.png)
 
 ![Curvas ROC](reports/curvas_roc_3_modelos.png)
 
 AUC: baseline 0.856 → dual-stream 0.893 → ensemble 0.896. Esta é a métrica que mede o ganho real, porque não depende da escolha de limiar.
+
+### Análise dos erros
+
+Contar 13 falsos negativos e 21 falsos positivos diz pouco sobre *o que* o modelo erra. [`reports/error_analysis.py`](reports/error_analysis.py) responde três perguntas que mudam a decisão de engenharia.
+
+```bash
+python reports/error_analysis.py
+```
+
+**1. Os erros ficam perto da fronteira de decisão.** A margem mediana até o limiar é de 17,3 p.p. nos erros contra 39,8 p.p. nos acertos — o modelo erra onde está em dúvida, e não onde está confiante. Mas o comportamento difere por tipo:
+
+| | Quantidade | Margem mediana | Leitura |
+| :--- | :---: | :---: | :--- |
+| Falsos negativos | 13 | 10,1 p.p. | perto da fronteira — agressões sutis, recuperáveis por calibração |
+| Falsos positivos | 21 | 30,2 p.p. | longe da fronteira — o modelo está **confiantemente** errado |
+
+Os cinco erros mais confiantes são todos falsos positivos, com P(Fight) entre 90% e 97%. São cenas normais que o modelo lê como agressão com alta convicção — falha de representação, não de calibração.
+
+**2. Os erros se concentram em poucas câmeras.** Dos 90 grupos do teste, **71 (79%) não produzem nenhum erro**. Sete grupos com dois ou mais erros concentram 22 dos 34 — **65% dos erros em 8% das câmeras**.
+
+| Grupo | Erros | Clipes | Classes na câmera |
+| :--- | :---: | :---: | :--- |
+| `I-QiUMPTWNE` | 6 | 12 | Fight + NonFight |
+| `1MVS2QPWbHc` | 3 | 8 | Fight + NonFight |
+| `2lrARl7utL4` | 3 | 3 | NonFight |
+| `YDOJvzChqSg` | 3 | 6 | Fight + NonFight |
+| `etyiEs3j8x8` | 3 | 10 | Fight + NonFight |
+
+Excluindo os três piores grupos — 23 clipes de 185 — a acurácia sobe de 81,62% para **86,42%**. O gargalo não é capacidade média do modelo; são poucos cenários específicos.
+
+Cinco dos sete grupos problemáticos têm clipes das **duas classes na mesma câmera**. É o caso mais difícil possível: mesmo fundo, mesma iluminação, mesmo enquadramento, e a única diferença é o movimento. O modelo não tem onde se apoiar além da dinâmica — exatamente o cenário que o particionamento por grupo foi desenhado para forçar.
+
+**3. Nenhum limiar resolve.** A varredura mostra que 0,50 já é o ótimo de acurácia, e que mover o limiar apenas troca um tipo de erro pelo outro:
+
+| θ | Acurácia | FN | FP |
+| :---: | :---: | :---: | :---: |
+| 0.35 | 78.92% | 5 | 34 |
+| 0.40 | 81.08% | 7 | 28 |
+| 0.45 | 81.62% | 9 | 25 |
+| **0.50** | **81.62%** | **13** | **21** |
+| 0.55 | 79.46% | 18 | 20 |
+| 0.65 | 81.08% | 21 | 14 |
+
+Isso delimita onde está o ganho disponível. Reduzir falsos negativos de 13 para 7 custa sete falsos positivos a mais e é uma decisão de política, não de modelagem. Já eliminar os falsos positivos confiantes exige mais dados dos cenários que os produzem, ou uma representação que capture o que distingue movimento intenso de agressão — nenhum ajuste de limiar chega lá.
+
+Resultado completo em [`reports/error_analysis.json`](reports/error_analysis.json).
 
 ### Dashboard consolidado
 
@@ -341,7 +387,8 @@ python src/evaluate.py --model ensemble --split val
 python benchmarks/benchmark_detailed_latency.py      # latência em CPU
 python benchmarks/verify_onnx_parity.py --model ensemble
 
-# 7. Figuras
+# 7. Analise dos erros e figuras
+python reports/error_analysis.py
 python reports/generate_evolution_charts.py
 python reports/generate_mosaic_preview.py --label Fight
 
@@ -366,6 +413,7 @@ benchmarks/
   benchmark_detailed_latency.py    latencia dos 3 modelos sob protocolo unico
   verify_onnx_parity.py            paridade ONNX x PyTorch + ONNX Runtime
 reports/
+  error_analysis.py                onde e por que o modelo erra no teste
   generate_evolution_charts.py     matrizes de confusao, ROC e dashboard
   generate_mosaic_preview.py       mosaico de predicao sobre um video
   selected/                        curvas e historico dos modelos selecionados

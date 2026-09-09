@@ -1,0 +1,180 @@
+{
+  "model": "ensemble",
+  "threshold": 0.5,
+  "num_videos": 185,
+  "num_errors": 34,
+  "false_negatives": 13,
+  "false_positives": 21,
+  "margin": {
+    "median_errors": 17.309371948242188,
+    "median_correct": 39.80338668823242,
+    "median_fn": 10.120448112487793,
+    "median_fp": 30.15806007385254,
+    "errors_within_pp": {
+      "5": 5,
+      "10": 9,
+      "20": 18,
+      "30": 22
+    }
+  },
+  "clustering": {
+    "groups_total": 90,
+    "groups_with_errors": 19,
+    "groups_error_free": 71,
+    "groups_with_2plus_errors": 7,
+    "errors_in_those_groups": 22,
+    "worst_groups": [
+      {
+        "grupo": "I-QiUMPTWNE",
+        "erros": 6,
+        "clipes": 12,
+        "classes": [
+          "Fight",
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "1MVS2QPWbHc",
+        "erros": 3,
+        "clipes": 8,
+        "classes": [
+          "Fight",
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "2lrARl7utL4",
+        "erros": 3,
+        "clipes": 3,
+        "classes": [
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "YDOJvzChqSg",
+        "erros": 3,
+        "clipes": 6,
+        "classes": [
+          "Fight",
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "etyiEs3j8x8",
+        "erros": 3,
+        "clipes": 10,
+        "classes": [
+          "Fight",
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "fO2vb61DcUk",
+        "erros": 2,
+        "clipes": 2,
+        "classes": [
+          "NonFight"
+        ]
+      },
+      {
+        "grupo": "tf_X7GtOGyE",
+        "erros": 2,
+        "clipes": 7,
+        "classes": [
+          "Fight",
+          "NonFight"
+        ]
+      }
+    ],
+    "accuracy_all": 81.62162162162161,
+    "accuracy_excluding_worst3": 86.41975308641975
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.35,
+      "accuracy": 78.91891891891892,
+      "false_negative": 5,
+      "false_positive": 34
+    },
+    {
+      "threshold": 0.4,
+      "accuracy": 81.08108108108108,
+      "false_negative": 7,
+      "false_positive": 28
+    },
+    {
+      "threshold": 0.45,
+      "accuracy": 81.62162162162161,
+      "false_negative": 9,
+      "false_positive": 25
+    },
+    {
+      "threshold": 0.5,
+      "accuracy": 81.62162162162161,
+      "false_negative": 13,
+      "false_positive": 21
+    },
+    {
+      "threshold": 0.55,
+      "accuracy": 79.45945945945945,
+      "false_negative": 18,
+      "false_positive": 20
+    },
+    {
+      "threshold": 0.6,
+      "accuracy": 79.45945945945945,
+      "false_negative": 20,
+      "false_positive": 18
+    },
+    {
+      "threshold": 0.65,
+      "accuracy": 81.08108108108108,
+      "false_negative": 21,
+      "false_positive": 14
+    }
+  ],
+  "most_confident_errors": [
+    {
+      "arquivo": "EFv961C5RgY_0.avi",
+      "tipo": "FP",
+      "real": "NonFight",
+      "prob_fight": 0.9668347835540771,
+      "margem_pp": 46.68347930908203
+    },
+    {
+      "arquivo": "xRbCHA5YTi8_0.avi",
+      "tipo": "FP",
+      "real": "NonFight",
+      "prob_fight": 0.9497345089912415,
+      "margem_pp": 44.97344970703125
+    },
+    {
+      "arquivo": "39BFeYnbu-I_0.avi",
+      "tipo": "FP",
+      "real": "NonFight",
+      "prob_fight": 0.9353111386299133,
+      "margem_pp": 43.53111267089844
+    },
+    {
+      "arquivo": "tf_X7GtOGyE_1.avi",
+      "tipo": "FP",
+      "real": "NonFight",
+      "prob_fight": 0.9051956534385681,
+      "margem_pp": 40.51956558227539
+    },
+    {
+      "arquivo": "fO2vb61DcUk_1.avi",
+      "tipo": "FP",
+      "real": "NonFight",
+      "prob_fight": 0.9010336399078369,
+      "margem_pp": 40.103363037109375
+    },
+    {
+      "arquivo": "bW2vHhYbzHM_0.avi",
+      "tipo": "FN",
+      "real": "Fight",
+      "prob_fight": 0.10580805689096451,
+      "margem_pp": 39.419193267822266
+    }
+  ]
+}

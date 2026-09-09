@@ -22,6 +22,7 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 - [ ] `python tests/test_splits.py` passando — vai rodar na tela no minuto 1:00
 - [ ] `python src/evaluate.py --model ensemble` rodando de verdade na máquina de gravação
 - [ ] `python src/inference.py --video sample_video.avi --label Fight` testado
+- [ ] `python reports/error_analysis.py` testado — use no minuto 6:00 se quiser mostrar ao vivo
 - [ ] Abertos num visualizador: `reports/matrizes_confusao_3_modelos.png`, `reports/curvas_roc_3_modelos.png`, `reports/selected/training_curves_modelo3_tristream.png`
 - [ ] Terminal em fonte 16+, 1080p, microfone testado sem eco
 - [ ] Abas do editor: `README.md`, `src/create_splits.py`, `src/model.py`, `src/select_ensemble.py`
@@ -126,7 +127,11 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 >
 > Vale reparar que o Modelo 2 tem o menor número de falsos negativos, e num cenário de tolerância zero a agressão perdida ele seria uma escolha defensável. O Modelo 3 troca cinco falsos negativos por onze falsos positivos a menos.
 >
-> E o número em que eu mais confio é o AUC-ROC, porque ele não depende da escolha de limiar: 85,6% no baseline, 89,3% no dual-stream, 89,6% no ensemble. É esse salto que mostra que o viés indutivo cinético — velocidade e aceleração no espaço latente — realmente adiciona poder discriminativo, e não só desloca o ponto de operação."
+> E o número em que eu mais confio é o AUC-ROC, porque ele não depende da escolha de limiar: 85,6% no baseline, 89,3% no dual-stream, 89,6% no ensemble. É esse salto que mostra que o viés indutivo cinético — velocidade e aceleração no espaço latente — realmente adiciona poder discriminativo, e não só desloca o ponto de operação.
+>
+> E eu fui olhar *onde* o modelo erra, porque contar 34 erros não diz o que fazer com eles. Dois achados. Primeiro: dos 90 grupos de câmera do teste, **71 não produzem erro nenhum** — sete câmeras concentram 65% dos erros. Excluindo as três piores, 23 clipes de 185, a acurácia sobe de 81,6% para 86,4%. O gargalo não é capacidade média, são cenários específicos. E cinco desses sete grupos têm clipes das duas classes na mesma câmera: mesmo fundo, mesma iluminação, só o movimento muda. É o caso mais difícil possível, e é exatamente o que o split por grupo força.
+>
+> Segundo: os falsos negativos ficam a 10 pontos da fronteira — são agressões sutis, recuperáveis por calibração. Já os falsos positivos ficam a 30 pontos: o modelo está **confiantemente** errado neles, com probabilidade acima de 90%. Isso é falha de representação, não de limiar — e a varredura confirma que nenhum limiar melhora a acurácia. Ou seja, o próximo ganho vem de dados desses cenários, não de ajuste fino."
 
 *(Rodar `python src/evaluate.py --model ensemble` ao vivo.)*
 
