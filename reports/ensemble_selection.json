@@ -1,0 +1,93 @@
+{
+  "criterion": "f1",
+  "min_precision": 0.8,
+  "selected_on": "val",
+  "champion": {
+    "members": [
+      "models/pool\\tristream_s17.pth",
+      "models/pool\\dualmeanmax_s4.pth",
+      "models/pool\\dualmeanmax_s5.pth"
+    ],
+    "threshold": 0.5,
+    "precision": 0.782258064516129,
+    "recall": 0.8660714285714286,
+    "f1": 0.8220338983050847,
+    "youden": 0.6039355062413314,
+    "accuracy": 0.8046511627906977,
+    "false_negative": 15,
+    "false_positive": 27
+  },
+  "validation_distribution": {
+    "mean_accuracy": 76.81028151774785,
+    "std_accuracy": 1.0887764270822444,
+    "min_accuracy": 73.0232558139535,
+    "max_accuracy": 80.46511627906978,
+    "num_combinations": 3800
+  },
+  "ranking": [
+    {
+      "members": [
+        "models/pool\\tristream_s17.pth",
+        "models/pool\\dualmeanmax_s4.pth",
+        "models/pool\\dualmeanmax_s5.pth"
+      ],
+      "threshold": 0.5,
+      "precision": 0.782258064516129,
+      "recall": 0.8660714285714286,
+      "f1": 0.8220338983050847,
+      "youden": 0.6039355062413314,
+      "accuracy": 0.8046511627906977,
+      "false_negative": 15,
+      "false_positive": 27
+    },
+    {
+      "members": [
+        "models/pool\\tristream_s12.pth",
+        "models/pool\\dualmeanmax_s3.pth",
+        "models/pool\\dualmeanmax_s7.pth"
+      ],
+      "threshold": 0.5,
+      "precision": 0.7674418604651163,
+      "recall": 0.8839285714285714,
+      "f1": 0.8215767634854771,
+      "youden": 0.5926664355062412,
+      "accuracy": 0.8,
+      "false_negative": 13,
+      "false_positive": 30
+    },
+    {
+      "members": [
+        "models/pool\\tristream_s14.pth",
+        "models/pool\\dualmeanmax_s12.pth",
+        "models/pool\\dualmeanmax_s5.pth"
+      ],
+      "threshold": 0.5,
+      "precision": 0.7716535433070866,
+      "recall": 0.875,
+      "f1": 0.8200836820083681,
+      "youden": 0.5934466019417477,
+      "accuracy": 0.8,
+      "false_negative": 14,
+      "false_positive": 29
+    }
+  ],
+  "test_metrics": {
+    "model": "ensemble",
+    "model_name": "Modelo 3: Ensemble Cinetico Tri-Stream (1x TriStream + 2x DualStream)",
+    "split": "test",
+    "threshold": 0.5,
+    "num_videos": 185,
+    "hits": 151,
+    "accuracy": 81.62162162162161,
+    "recall": 85.22727272727273,
+    "precision": 78.125,
+    "f1_score": 81.52173913043478,
+    "auc_roc": 89.59700093720713,
+    "confusion_matrix": {
+      "true_negative": 76,
+      "false_positive": 21,
+      "false_negative": 13,
+      "true_positive": 75
+    }
+  }
+}

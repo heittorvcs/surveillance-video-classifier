@@ -1,0 +1,19 @@
+{
+  "model": "dualstream",
+  "model_name": "Modelo 2: Dual-Stream Latente (Aparencia + Velocidade)",
+  "split": "test",
+  "threshold": 0.5,
+  "num_videos": 185,
+  "hits": 145,
+  "accuracy": 78.37837837837837,
+  "recall": 90.9090909090909,
+  "precision": 71.42857142857143,
+  "f1_score": 80.0,
+  "auc_roc": 89.2572633552015,
+  "confusion_matrix": {
+    "true_negative": 65,
+    "false_positive": 32,
+    "false_negative": 8,
+    "true_positive": 80
+  }
+}

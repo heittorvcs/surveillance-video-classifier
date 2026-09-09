@@ -1,0 +1,60 @@
+{
+  "pool": {
+    "tristream": 20,
+    "dualmeanmax": 20
+  },
+  "num_trios": 3800,
+  "num_thresholds": 91,
+  "num_configurations": 345800,
+  "oracle_on_test": {
+    "threshold": 0.5400000000000001,
+    "precision": 0.8144329896907216,
+    "recall": 0.8977272727272727,
+    "f1": 0.8540540540540541,
+    "youden": 0.7121602624179943,
+    "accuracy": 0.8540540540540541,
+    "false_negative": 9,
+    "false_positive": 18,
+    "members": [
+      "models/pool\\tristream_s10.pth",
+      "models/pool\\dualmeanmax_s10.pth",
+      "models/pool\\dualmeanmax_s13.pth"
+    ]
+  },
+  "honest_protocol": {
+    "members": [
+      "models/pool\\tristream_s17.pth",
+      "models/pool\\dualmeanmax_s4.pth",
+      "models/pool\\dualmeanmax_s5.pth"
+    ],
+    "threshold": 0.5,
+    "validation": {
+      "threshold": 0.5,
+      "precision": 0.782258064516129,
+      "recall": 0.8660714285714286,
+      "f1": 0.8220338983050847,
+      "youden": 0.6039355062413314,
+      "accuracy": 0.8046511627906977,
+      "false_negative": 15,
+      "false_positive": 27
+    },
+    "test": {
+      "threshold": 0.5,
+      "precision": 0.78125,
+      "recall": 0.8522727272727273,
+      "f1": 0.8152173913043479,
+      "youden": 0.6357778819119027,
+      "accuracy": 0.8162162162162162,
+      "false_negative": 13,
+      "false_positive": 21
+    }
+  },
+  "test_distribution_at_val_threshold": {
+    "mean": 80.9935988620199,
+    "std": 1.1785447847186794,
+    "min": 77.29729729729729,
+    "max": 84.86486486486487,
+    "n": 3800
+  },
+  "selection_bias_pp": 3.7837837837837895
+}

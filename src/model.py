@@ -287,9 +287,9 @@ class EnsembleHead(nn.Module):
 
 
 ENSEMBLE_MEMBER_FILES = [
-    ("model_tristream_s7.pth", TriStream_Kinetic),
-    ("model_dualmeanmax_s5.pth", DualStream_MeanMax),
-    ("model_dualmeanmax_s10.pth", DualStream_MeanMax),
+    ("member_tristream.pth", TriStream_Kinetic),
+    ("member_dualmeanmax_a.pth", DualStream_MeanMax),
+    ("member_dualmeanmax_b.pth", DualStream_MeanMax),
 ]
 
 ENSEMBLE_SEARCH_DIRS = ["models/ensemble", "experiments/target_85", "legacy_experiments/target_85"]
@@ -304,6 +304,36 @@ def resolve_weights(filename, subfolders):
     raise FileNotFoundError(
         f"Pesos não encontrados para '{filename}' em: {', '.join(subfolders)}"
     )
+
+
+def load_into_full_model(model, path, device="cpu"):
+    """
+    Carrega pesos em um modelo ponta a ponta (backbone + cabeça).
+
+    Aceita duas formas de checkpoint: o modelo completo, ou apenas a cabeça — que
+    é o que src/train.py salva, já que o backbone fica congelado e é sempre o
+    MobileNetV3-Small do ImageNet. No segundo caso as chaves do backbone que já
+    vêm do torchvision são mantidas, e exige-se que todas as chaves da cabeça
+    estejam presentes, para que um checkpoint incompatível falhe em vez de
+    carregar pela metade.
+    """
+    state = torch.load(path, map_location=device)
+    has_backbone = any(k.startswith("features.") for k in state)
+
+    if has_backbone:
+        model.load_state_dict(state)
+        return path
+
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    if unexpected:
+        raise RuntimeError(f"Chaves inesperadas em '{path}': {sorted(unexpected)[:5]}")
+    non_backbone_missing = [k for k in missing if not k.startswith("features.")]
+    if non_backbone_missing:
+        raise RuntimeError(
+            f"Checkpoint '{path}' não contém a cabeça completa. "
+            f"Faltando: {sorted(non_backbone_missing)[:5]}"
+        )
+    return path
 
 
 def load_ensemble_head(device="cpu", subfolders=None):
@@ -323,14 +353,22 @@ def load_ensemble_head(device="cpu", subfolders=None):
 # FACTORY HELPER PARA CARREGAMENTO AUTOMÁTICO
 # ==============================================================================
 # Limiares de decisão padrão por modelo.
-# ATENÇÃO: o limiar do ensemble (0.52) foi originalmente escolhido observando o
-# split de TESTE, o que caracteriza seleção de modelo com informação do teste.
-# Use src/calibrate_threshold.py para recalibrá-lo sobre o split de VALIDAÇÃO
-# antes de reportar qualquer métrica como estimativa não enviesada.
+#
+# Os três ficam em 0.50 de propósito. A seleção de semente/trio é feita sobre o
+# split de VALIDAÇÃO com o limiar FIXO (src/select_single.py e src/select_ensemble.py):
+# escolher semente e limiar ao mesmo tempo em 215 vídeos superajusta a validação —
+# uma varredura de 91 limiares chegou a eleger θ = 0.15 para o dual-stream.
+#
+# Com o limiar fixo, a seleção mede a arquitetura, não o ponto de operação. A
+# escolha do ponto de operação é uma decisão separada e explícita, feita por
+# src/calibrate_threshold.py e passada em --threshold.
+#
+# O valor 0.52 usado na primeira versão veio de uma busca que maximizava acurácia
+# no próprio teste — ver README, seção 5.
 DEFAULT_THRESHOLDS = {
     "baseline": 0.50,
     "dualstream": 0.50,
-    "ensemble": 0.52,
+    "ensemble": 0.50,
 }
 
 
@@ -345,35 +383,37 @@ def load_classifier(model_name="ensemble", device="cpu", custom_path=None):
     
     if model_name == "baseline":
         model = VideoClassifier().to(device)
-        path = custom_path or "models/best_model.pth"
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Pesos do Baseline não encontrados em: {path}")
-        model.load_state_dict(torch.load(path, map_location=device))
+        candidate_paths = [custom_path, "models/best_model.pth", "models/baseline_seed42.pth"]
+        path = next((p for p in candidate_paths if p and os.path.exists(p)), None)
+        if not path:
+            raise FileNotFoundError(f"Pesos do Baseline não encontrados em: {candidate_paths[1:]}")
+        load_into_full_model(model, path, device)
         model.eval()
         default_th = DEFAULT_THRESHOLDS["baseline"]
         return model, default_th, "Baseline Minimalista (Bi-GRU)"
-        
+
     elif model_name == "dualstream":
         model = VideoClassifierDualStream().to(device)
         candidate_paths = [
             custom_path,
-            "models/best_model_dualstream_82acc.pth",
-            "experiments/best_model_dualstream_82acc.pth",
-            "legacy_experiments/best_model_dualstream_82acc.pth"
+            "models/model_dualstream_best.pth",
+            "models/dualstream_seed42.pth",
+            "experiments/model_dualstream_best.pth",
+            "legacy_experiments/model_dualstream_best.pth",
         ]
         path = next((p for p in candidate_paths if p and os.path.exists(p)), None)
         if not path:
             raise FileNotFoundError("Pesos do DualStream não encontrados em models/ ou experiments/")
-        model.load_state_dict(torch.load(path, map_location=device))
+        load_into_full_model(model, path, device)
         model.eval()
         default_th = DEFAULT_THRESHOLDS["dualstream"]
         return model, default_th, "Dual-Stream Latente (Aparência + Velocidade)"
         
     elif model_name in ["ensemble", "tristream", "kinetic"]:
         model = KineticEnsembleClassifier().to(device)
-        p1 = resolve_weights("model_tristream_s7.pth", ENSEMBLE_SEARCH_DIRS)
-        p2 = resolve_weights("model_dualmeanmax_s5.pth", ENSEMBLE_SEARCH_DIRS)
-        p3 = resolve_weights("model_dualmeanmax_s10.pth", ENSEMBLE_SEARCH_DIRS)
+        p1 = resolve_weights(ENSEMBLE_MEMBER_FILES[0][0], ENSEMBLE_SEARCH_DIRS)
+        p2 = resolve_weights(ENSEMBLE_MEMBER_FILES[1][0], ENSEMBLE_SEARCH_DIRS)
+        p3 = resolve_weights(ENSEMBLE_MEMBER_FILES[2][0], ENSEMBLE_SEARCH_DIRS)
         model.m1.load_state_dict(torch.load(p1, map_location=device))
         model.m2.load_state_dict(torch.load(p2, map_location=device))
         model.m3.load_state_dict(torch.load(p3, map_location=device))

@@ -1,0 +1,19 @@
+{
+  "model": "ensemble",
+  "model_name": "Modelo 3: Ensemble Cinetico Tri-Stream (1x TriStream + 2x DualStream)",
+  "split": "test",
+  "threshold": 0.5,
+  "num_videos": 185,
+  "hits": 151,
+  "accuracy": 81.62162162162161,
+  "recall": 85.22727272727273,
+  "precision": 78.125,
+  "f1_score": 81.52173913043478,
+  "auc_roc": 89.59700093720713,
+  "confusion_matrix": {
+    "true_negative": 76,
+    "false_positive": 21,
+    "false_negative": 13,
+    "true_positive": 75
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "model": "baseline",
+  "model_name": "Modelo 1: Baseline Minimalista (Bi-GRU)",
+  "split": "test",
+  "threshold": 0.5,
+  "num_videos": 185,
+  "hits": 141,
+  "accuracy": 76.21621621621621,
+  "recall": 71.5909090909091,
+  "precision": 76.82926829268293,
+  "f1_score": 74.11764705882354,
+  "auc_roc": 85.62558575445173,
+  "confusion_matrix": {
+    "true_negative": 78,
+    "false_positive": 19,
+    "false_negative": 25,
+    "true_positive": 63
+  }
+}

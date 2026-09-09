@@ -1,0 +1,100 @@
+{
+  "arch": "dualstream",
+  "criterion": "f1",
+  "min_precision": 0.8,
+  "selected_on": "val",
+  "num_candidates": 20,
+  "champion": {
+    "checkpoint": "models/pool\\dualstream_s12.pth",
+    "threshold": 0.5,
+    "precision": 0.7214285714285714,
+    "recall": 0.9017857142857143,
+    "f1": 0.8015873015873015,
+    "youden": 0.523144937586685,
+    "accuracy": 0.7674418604651163,
+    "false_negative": 11,
+    "false_positive": 39
+  },
+  "validation_distribution": {
+    "mean_accuracy": 74.4186046511628,
+    "std_accuracy": 1.8968294372397092,
+    "min_accuracy": 71.16279069767441,
+    "max_accuracy": 78.13953488372093
+  },
+  "ranking": [
+    {
+      "checkpoint": "models/pool\\dualstream_s12.pth",
+      "threshold": 0.5,
+      "precision": 0.7214285714285714,
+      "recall": 0.9017857142857143,
+      "f1": 0.8015873015873015,
+      "youden": 0.523144937586685,
+      "accuracy": 0.7674418604651163,
+      "false_negative": 11,
+      "false_positive": 39
+    },
+    {
+      "checkpoint": "models/pool\\dualstream_s18.pth",
+      "threshold": 0.5,
+      "precision": 0.7777777777777778,
+      "recall": 0.8125,
+      "f1": 0.7947598253275109,
+      "youden": 0.5600728155339807,
+      "accuracy": 0.7813953488372093,
+      "false_negative": 21,
+      "false_positive": 26
+    },
+    {
+      "checkpoint": "models/pool\\dualstream_s14.pth",
+      "threshold": 0.5,
+      "precision": 0.732824427480916,
+      "recall": 0.8571428571428571,
+      "f1": 0.7901234567901235,
+      "youden": 0.5173370319001387,
+      "accuracy": 0.7627906976744186,
+      "false_negative": 16,
+      "false_positive": 35
+    },
+    {
+      "checkpoint": "models/pool\\dualstream_s6.pth",
+      "threshold": 0.5,
+      "precision": 0.75,
+      "recall": 0.8303571428571429,
+      "f1": 0.7881355932203391,
+      "youden": 0.5293862690707352,
+      "accuracy": 0.7674418604651163,
+      "false_negative": 19,
+      "false_positive": 31
+    },
+    {
+      "checkpoint": "models/pool\\dualstream_s7.pth",
+      "threshold": 0.5,
+      "precision": 0.7307692307692307,
+      "recall": 0.8482142857142857,
+      "f1": 0.7851239669421487,
+      "youden": 0.5084084604715673,
+      "accuracy": 0.7581395348837209,
+      "false_negative": 17,
+      "false_positive": 35
+    }
+  ],
+  "test_metrics": {
+    "model": "dualstream",
+    "model_name": "Modelo 2: Dual-Stream Latente (Aparencia + Velocidade)",
+    "split": "test",
+    "threshold": 0.5,
+    "num_videos": 185,
+    "hits": 145,
+    "accuracy": 78.37837837837837,
+    "recall": 90.9090909090909,
+    "precision": 71.42857142857143,
+    "f1_score": 80.0,
+    "auc_roc": 89.2572633552015,
+    "confusion_matrix": {
+      "true_negative": 65,
+      "false_positive": 32,
+      "false_negative": 8,
+      "true_positive": 80
+    }
+  }
+}

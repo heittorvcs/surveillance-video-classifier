@@ -32,32 +32,48 @@ import os
 
 import numpy as np
 import torch
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
 from src.evaluate import evaluate_model, load_features, predict_probs
 
 
 def sweep(y_true, probs, thresholds):
-    """Metricas da classe Fight para cada limiar candidato."""
-    rows = []
-    for th in thresholds:
-        preds = (probs >= th).astype(int)
-        prec, rec, f1, _ = precision_recall_fscore_support(
-            y_true, preds, average="binary", zero_division=0
-        )
-        cm = confusion_matrix(y_true, preds, labels=[0, 1])
-        specificity = cm[0, 0] / max(cm[0].sum(), 1)
-        rows.append({
-            "threshold": float(th),
-            "precision": float(prec),
-            "recall": float(rec),
-            "f1": float(f1),
-            "youden": float(rec + specificity - 1.0),
-            "accuracy": float((preds == y_true).mean()),
-            "false_negative": int(cm[1, 0]),
-            "false_positive": int(cm[0, 1]),
-        })
-    return rows
+    """
+    Metricas da classe Fight para cada limiar candidato.
+
+    Vetorizado: a busca de ensembles avalia milhares de trios, e chamar o sklearn
+    uma vez por limiar tornava o script inutilizavel na pratica (centenas de
+    milhares de chamadas). Aqui a matriz de confusao dos m limiares e calculada
+    de uma vez sobre as n amostras.
+    """
+    y = np.asarray(y_true).astype(bool)
+    p = np.asarray(probs, dtype=float)
+    th = np.asarray(thresholds, dtype=float)
+
+    preds = p[None, :] >= th[:, None]           # (m, n)
+    tp = (preds & y[None, :]).sum(axis=1)
+    fp = (preds & ~y[None, :]).sum(axis=1)
+    fn = (~preds & y[None, :]).sum(axis=1)
+    tn = (~preds & ~y[None, :]).sum(axis=1)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        precision = np.where(tp + fp > 0, tp / np.maximum(tp + fp, 1), 0.0)
+        recall = np.where(tp + fn > 0, tp / np.maximum(tp + fn, 1), 0.0)
+        f1 = np.where(precision + recall > 0,
+                      2 * precision * recall / np.maximum(precision + recall, 1e-12), 0.0)
+        specificity = np.where(tn + fp > 0, tn / np.maximum(tn + fp, 1), 0.0)
+
+    accuracy = (tp + tn) / len(y)
+
+    return [{
+        "threshold": float(th[i]),
+        "precision": float(precision[i]),
+        "recall": float(recall[i]),
+        "f1": float(f1[i]),
+        "youden": float(recall[i] + specificity[i] - 1.0),
+        "accuracy": float(accuracy[i]),
+        "false_negative": int(fn[i]),
+        "false_positive": int(fp[i]),
+    } for i in range(len(th))]
 
 
 def pick(rows, criterion, min_precision):

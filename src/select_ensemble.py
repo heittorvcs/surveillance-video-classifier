@@ -45,7 +45,7 @@ import torch
 
 from src.calibrate_threshold import pick, sweep
 from src.evaluate import evaluate_model, load_features
-from src.model import DualStream_MeanMax, TriStream_Kinetic
+from src.model import ENSEMBLE_MEMBER_FILES, DualStream_MeanMax, TriStream_Kinetic
 
 DEFAULT_TRISTREAM_GLOB = "models/pool/tristream_s*.pth"
 DEFAULT_DUALSTREAM_GLOB = "models/pool/dualmeanmax_s*.pth"
@@ -71,6 +71,8 @@ def main():
                         choices=["f1", "recall_at_precision", "youden"])
     parser.add_argument("--min_precision", type=float, default=0.80)
     parser.add_argument("--step", type=float, default=0.01)
+    parser.add_argument("--fixed_threshold", type=float, default=None,
+                        help="Fixa o limiar em vez de varre-lo. Selecionar semente E limiar sobre 215 videos superajusta a validacao; com o limiar fixo, a selecao mede a arquitetura e nao o ponto de operacao.")
     parser.add_argument("--top_k", type=int, default=10, help="Quantos trios listar no ranking")
     parser.add_argument("--export", action="store_true",
                         help="Copia o trio escolhido para models/ensemble/ com os nomes esperados")
@@ -98,7 +100,8 @@ def main():
     tri_probs = member_probs(TriStream_Kinetic, tri_paths, val_feats, device)
     dual_probs = member_probs(DualStream_MeanMax, dual_paths, val_feats, device)
 
-    thresholds = np.arange(0.05, 0.95 + args.step / 2, args.step)
+    thresholds = (np.array([args.fixed_threshold]) if args.fixed_threshold is not None
+                  else np.arange(0.05, 0.95 + args.step / 2, args.step))
     results = []
 
     for tri, (d1, d2) in itertools.product(tri_paths, itertools.combinations(sorted(dual_paths), 2)):
@@ -145,7 +148,7 @@ def main():
 
     if args.export:
         os.makedirs("models/ensemble", exist_ok=True)
-        targets = ["model_tristream_s7.pth", "model_dualmeanmax_s5.pth", "model_dualmeanmax_s10.pth"]
+        targets = [name for name, _ in ENSEMBLE_MEMBER_FILES]
         for src_path, target in zip(champion["members"], targets):
             dst = os.path.join("models/ensemble", target)
             shutil.copyfile(src_path, dst)
