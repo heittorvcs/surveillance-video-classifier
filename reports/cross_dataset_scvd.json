@@ -1,0 +1,135 @@
+{
+  "dataset": "SCVD (Smart-City CCTV Violence Detection)",
+  "num_videos": 481,
+  "classes": {
+    "Normal": 246,
+    "Violence": 111,
+    "Weaponized": 124
+  },
+  "modelos": {
+    "baseline": {
+      "threshold": 0.5,
+      "versao_A_com_armada": {
+        "n": 481,
+        "n_fight": 235,
+        "n_nonfight": 246,
+        "accuracy": 69.64656964656965,
+        "precision": 66.79245283018868,
+        "recall": 75.31914893617021,
+        "f1": 70.8,
+        "auc": 76.12869745718733,
+        "tn": 158,
+        "fp": 88,
+        "fn": 58,
+        "tp": 177
+      },
+      "versao_B_sem_armada": {
+        "n": 357,
+        "n_fight": 111,
+        "n_nonfight": 246,
+        "accuracy": 68.90756302521008,
+        "precision": 50.0,
+        "recall": 79.27927927927928,
+        "f1": 61.32404181184668,
+        "auc": 78.20259283673919,
+        "tn": 158,
+        "fp": 88,
+        "fn": 23,
+        "tp": 88
+      },
+      "deteccao_por_classe": {
+        "Normal": 35.77235772357724,
+        "Violence": 79.27927927927928,
+        "Weaponized": 71.7741935483871
+      }
+    },
+    "dualstream": {
+      "threshold": 0.5,
+      "versao_A_com_armada": {
+        "n": 481,
+        "n_fight": 235,
+        "n_nonfight": 246,
+        "accuracy": 64.65696465696466,
+        "precision": 58.760107816711596,
+        "recall": 92.76595744680851,
+        "f1": 71.94719471947195,
+        "auc": 81.4530358069538,
+        "tn": 93,
+        "fp": 153,
+        "fn": 17,
+        "tp": 218
+      },
+      "versao_B_sem_armada": {
+        "n": 357,
+        "n_fight": 111,
+        "n_nonfight": 246,
+        "accuracy": 56.30252100840336,
+        "precision": 41.37931034482759,
+        "recall": 97.2972972972973,
+        "f1": 58.06451612903226,
+        "auc": 87.13469567128104,
+        "tn": 93,
+        "fp": 153,
+        "fn": 3,
+        "tp": 108
+      },
+      "deteccao_por_classe": {
+        "Normal": 62.19512195121951,
+        "Violence": 97.2972972972973,
+        "Weaponized": 88.70967741935483
+      }
+    },
+    "ensemble": {
+      "threshold": 0.5,
+      "versao_A_com_armada": {
+        "n": 481,
+        "n_fight": 235,
+        "n_nonfight": 246,
+        "accuracy": 71.10187110187111,
+        "precision": 65.09433962264151,
+        "recall": 88.08510638297872,
+        "f1": 74.86437613019892,
+        "auc": 83.98028022833421,
+        "tn": 135,
+        "fp": 111,
+        "fn": 28,
+        "tp": 207,
+        "recalibrado": {
+          "threshold": 0.6800000000000002,
+          "accuracy": 76.50727650727652,
+          "recall": 73.19148936170212,
+          "precision": 77.47747747747748,
+          "f1": 75.27352297592998,
+          "ganho_acuracia_pp": 5.405405405405405
+        }
+      },
+      "versao_B_sem_armada": {
+        "n": 357,
+        "n_fight": 111,
+        "n_nonfight": 246,
+        "accuracy": 66.38655462184873,
+        "precision": 47.88732394366197,
+        "recall": 91.8918918918919,
+        "f1": 62.96296296296296,
+        "auc": 87.69867428404014,
+        "tn": 135,
+        "fp": 111,
+        "fn": 9,
+        "tp": 102,
+        "recalibrado": {
+          "threshold": 0.8200000000000002,
+          "accuracy": 84.593837535014,
+          "recall": 63.06306306306306,
+          "precision": 83.33333333333334,
+          "f1": 71.79487179487181,
+          "ganho_acuracia_pp": 18.20728291316527
+        }
+      },
+      "deteccao_por_classe": {
+        "Normal": 45.1219512195122,
+        "Violence": 91.8918918918919,
+        "Weaponized": 84.67741935483872
+      }
+    }
+  }
+}

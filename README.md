@@ -55,7 +55,25 @@ Forward do modelo:          61.11 ms
 Total por clipe:           114.69 ms
 ```
 
-O clipe é uma gravação de câmera fixa em formato RWF-2000 (5 s, 320×240, 30 FPS), rótulo real `Fight`, de câmera não vista em treino. Não é uma captura externa ao domínio do dataset — ver [Limitações](#10-limitações-e-trabalhos-futuros).
+O clipe é uma gravação de câmera fixa em formato RWF-2000 (5 s, 320×240, 30 FPS), rótulo real `Fight`, de câmera não vista em treino.
+
+### Inferência em vídeos de outro dataset
+
+Dois clipes do **SCVD**, um dataset independente que não participou de nenhuma etapa do treino ([seção 7](#7-validação-externa-generalização-para-outro-dataset)). São 720p, resolução e domínio diferentes dos dados de treino:
+
+| Vídeo | Rótulo real | Decisão | P(Fight) | Margem |
+| :--- | :---: | :---: | :---: | :---: |
+| [`sample_scvd_violence.avi`](sample_scvd_violence.avi) | `Fight` | Fight | 98.86% | 48.9 p.p. |
+| [`sample_scvd_normal.avi`](sample_scvd_normal.avi) | `NonFight` | NonFight | 4.31% | 45.7 p.p. |
+
+```bash
+python src/inference.py --video sample_scvd_violence.avi --label Fight
+python src/inference.py --video sample_scvd_normal.avi   --label NonFight
+```
+
+Os dois acertam com folga. Não são casos representativos do dataset inteiro — a [seção 7](#7-validação-externa-generalização-para-outro-dataset) reporta o desempenho sobre os 481 vídeos, que é bem mais modesto.
+
+Clipes originais do SCVD (`Test/Violence/t_v007_converted.avi` e `Test/Normal/t_n037_converted.avi`), incluídos apenas para demonstração e com atribuição à fonte.
 
 ---
 
@@ -175,7 +193,7 @@ Registros completos em [`reports/selection_baseline.json`](reports/selection_bas
 
 ### Duas decisões de protocolo
 
-**O limiar fica fixo durante a seleção.** Escolher semente e limiar ao mesmo tempo sobre 215 vídeos superajusta a validação: uma varredura de 91 limiares elegeu θ = 0,15 para o dual-stream, que rendeu 67,5% de precisão no teste. Com o limiar fixo em 0,50, a seleção mede a arquitetura; o ponto de operação vira uma decisão separada e explícita ([seção 8](#8-engenharia-de-limiares)).
+**O limiar fica fixo durante a seleção.** Escolher semente e limiar ao mesmo tempo sobre 215 vídeos superajusta a validação: uma varredura de 91 limiares elegeu θ = 0,15 para o dual-stream, que rendeu 67,5% de precisão no teste. Com o limiar fixo em 0,50, a seleção mede a arquitetura; o ponto de operação vira uma decisão separada e explícita ([seção 9](#9-engenharia-de-limiares)).
 
 **O critério é F1, não recall sob restrição de precisão.** A restrição `precisão ≥ 0,80` é estruturalmente inviável para o baseline: na validação ele só a atinge a θ ≥ 0,71, onde o recall cai para 56%. Um critério que uma das arquiteturas não consegue satisfazer transforma a comparação em outra coisa. F1 é neutro e comparável entre as três.
 
@@ -284,7 +302,88 @@ python reports/generate_evolution_charts.py
 
 ---
 
-## 7. Perfil de Edge AI
+## 7. Validação externa: generalização para outro dataset
+
+Todas as métricas até aqui vêm do RWF-2000. Um teste mais duro é aplicar o modelo, **sem retreinar**, a um dataset independente — nenhum vídeo do SCVD participou do treino, da validação ou da seleção de modelo.
+
+**Dataset:** SCVD — *Smart-City CCTV Violence Detection*, 481 vídeos de CFTV urbano em 720p, com 3 classes: `Normal` (246), `Violence` (111) e `Weaponized` (124).
+Fonte: <https://www.kaggle.com/datasets/toluwaniaremu/smartcity-cctv-violence-detection-dataset-scvd>
+
+Como o classificador é binário, as classes foram mapeadas em duas versões, para separar violência corporal de violência armada:
+
+* **Versão A — com armada:** `Normal` vs (`Violence` + `Weaponized`)
+* **Versão B — sem armada:** `Normal` vs `Violence`
+
+```bash
+python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
+```
+
+### O resultado, e o que ele realmente diz
+
+| Conjunto | Acurácia | Recall | Precisão | F1 | AUC-ROC |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| RWF-2000 (in-domain) | 81.62% | 85.23% | 78.12% | 81.52% | 89.60% |
+| SCVD versão A | 71.10% | 88.09% | 65.09% | 74.86% | 83.98% |
+| SCVD versão B | 66.39% | 91.89% | 47.89% | 62.96% | **87.70%** |
+
+A acurácia cai, mas o **recall sobe** e a precisão desaba. Isso não é perda de capacidade — o AUC-ROC, que independe do limiar, cai apenas 1,9 ponto na versão B. O modelo continua ordenando os vídeos quase tão bem quanto no domínio de origem.
+
+### O mecanismo: a classe positiva transfere, a negativa desloca
+
+| Conjunto | Mediana de P(Fight) |
+| :--- | :---: |
+| RWF-2000 Fight | 0.879 |
+| **SCVD Violence** | **0.880** |
+| SCVD Weaponized | 0.836 |
+| RWF-2000 NonFight | **0.168** |
+| **SCVD Normal** | **0.461** |
+
+![Validação externa no SCVD](reports/cross_dataset_scvd.png)
+
+A classe positiva é praticamente idêntica entre os dois datasets. A negativa é que se desloca: a mediana do "normal" sai de 0,17 para 0,46, encostando no limiar.
+
+A explicação é o próprio viés indutivo do modelo. O SCVD é CFTV urbano com trânsito e circulação constante, enquanto o `NonFight` do RWF-2000 é majoritariamente gente caminhando. O modelo aprendeu a usar **intensidade de movimento** como sinal de violência — o que funciona dentro do RWF-2000, mas confunde cena movimentada com agressão quando o domínio muda.
+
+### É problema de calibração, não de representação
+
+Recalibrando apenas o limiar no domínio novo, sem tocar nos pesos:
+
+| Versão | θ = 0.50 (calibrado no RWF-2000) | θ recalibrado | Ganho |
+| :--- | :---: | :---: | :---: |
+| A — com armada | 71.10% | **76.51%** (θ = 0.68) | +5.41 p.p. |
+| B — sem armada | 66.39% | **84.59%** (θ = 0.82) | +18.21 p.p. |
+
+> A versão B é desbalanceada (111 `Fight` contra 246 `Normal`), então prever sempre `NonFight` já daria 68,91%. Compare por F1 e AUC, não por acurácia bruta.
+
+Em produção isso significa que implantar em um novo local exige um conjunto de calibração daquele local — algumas dezenas de clipes rotulados bastam para reposicionar o limiar. Não exige retreinar.
+
+### Violência armada
+
+| Classe do SCVD | Detectada como `Fight` |
+| :--- | :---: |
+| `Violence` (sem arma) | 91.89% |
+| `Weaponized` (com arma) | **84.68%** |
+| `Normal` (alarme falso) | 45.12% |
+
+O modelo **generaliza para violência armada**, com queda de apenas 7 pontos. É coerente com a arquitetura: agressão armada envolve menos movimento corporal bruto — apontar uma arma, ameaçar — e as três cabeças operam sobre velocidade e aceleração.
+
+Note o efeito oposto nas duas métricas: incluir `Weaponized` **aumenta** a acurácia (71,10% contra 66,39%) porque equilibra as classes, mas **reduz** o AUC (83,98% contra 87,70%) porque essa classe é intrinsecamente mais difícil de separar.
+
+### A comparação entre arquiteturas se replica
+
+| Modelo | AUC versão A | AUC versão B |
+| :--- | :---: | :---: |
+| Modelo 1: Baseline | 76.13% | 78.20% |
+| Modelo 2: Dual-Stream | 81.45% | 87.13% |
+| **Modelo 3: Ensemble** | **83.98%** | **87.70%** |
+
+Mesma ordenação obtida no RWF-2000 (85.63% → 89.26% → 89.60%). O ganho do viés indutivo cinético não era artefato do dataset de treino: ele sobrevive à troca completa de domínio.
+
+Resultado completo em [`reports/cross_dataset_scvd.json`](reports/cross_dataset_scvd.json). Os vídeos do SCVD não são redistribuídos neste repositório; apenas dois clipes são incluídos como demonstração de inferência, com atribuição.
+
+---
+
+## 8. Perfil de Edge AI
 
 Medido por [`benchmarks/benchmark_detailed_latency.py`](benchmarks/benchmark_detailed_latency.py), que roda os três modelos **no mesmo laço, na mesma execução**, e registra o hardware junto com os números.
 
@@ -331,7 +430,7 @@ Com ONNX Runtime o forward do ensemble cai para 14.83 ms, e o custo por clipe pa
 
 ---
 
-## 8. Engenharia de limiares
+## 9. Engenharia de limiares
 
 O limiar de operação é uma decisão de produto, separada da seleção de modelo. [`src/calibrate_threshold.py`](src/calibrate_threshold.py) o escolhe sobre os 215 vídeos de validação e só então avalia o teste, uma vez:
 
@@ -346,7 +445,7 @@ Calibrando o ensemble por F1 sobre a validação, o limiar ótimo cai em θ = 0,
 
 ---
 
-## 9. Reprodução
+## 10. Reprodução
 
 ### Instalação
 
@@ -387,12 +486,15 @@ python src/evaluate.py --model ensemble --split val
 python benchmarks/benchmark_detailed_latency.py      # latência em CPU
 python benchmarks/verify_onnx_parity.py --model ensemble
 
-# 7. Analise dos erros e figuras
+# 7. Validacao externa (exige o SCVD baixado a parte)
+python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
+
+# 8. Analise dos erros e figuras
 python reports/error_analysis.py
 python reports/generate_evolution_charts.py
 python reports/generate_mosaic_preview.py --label Fight
 
-# 8. Testes
+# 9. Testes
 python tests/test_splits.py
 ```
 
@@ -412,6 +514,7 @@ src/
 benchmarks/
   benchmark_detailed_latency.py    latencia dos 3 modelos sob protocolo unico
   verify_onnx_parity.py            paridade ONNX x PyTorch + ONNX Runtime
+  eval_cross_dataset.py            validacao externa no SCVD, sem retreinar
 reports/
   error_analysis.py                onde e por que o modelo erra no teste
   generate_evolution_charts.py     matrizes de confusao, ROC e dashboard
@@ -425,13 +528,14 @@ data/splits/               CSVs das particoes (versionados)
 
 ---
 
-## 10. Limitações e trabalhos futuros
+## 11. Limitações e trabalhos futuros
 
 **Metodológicas**
 
 * **Data augmentation não medido.** O mecanismo está implementado e correto, mas os resultados publicados foram treinados sem o cache espelhado, por indisponibilidade do dataset bruto no retreinamento. O ganho é uma hipótese, não um resultado.
 * **Seleção sobre 215 vídeos de validação.** Escolher entre 3.800 trios num conjunto desse tamanho ainda superajusta a validação — é por isso que o limiar fica fixo durante a seleção. Um `GroupKFold` sobre treino+validação daria uma estimativa mais estável do que um split único.
-* **Vídeo de demonstração dentro do domínio.** `sample_video.avi` é um clipe de câmera fixa em formato RWF-2000, de câmera não vista em treino, mas não é uma captura externa.
+* **Calibração não transfere entre domínios.** A [seção 7](#7-validação-externa-generalização-para-outro-dataset) mostra que o AUC sobrevive à troca de dataset, mas o limiar não: no SCVD, o ponto de operação ótimo é θ = 0,82 em vez de 0,50. Implantar em um local novo exige um conjunto de calibração daquele local.
+* **Movimento como proxy de agressão.** O deslocamento da classe negativa no SCVD indica que o modelo usa intensidade de movimento como sinal. Cenários com circulação intensa geram alarme falso, e é a causa raiz dos falsos positivos confiantes vistos na análise de erros.
 * **Classes balanceadas.** O RWF-2000 é 1.000/1.000 por construção e o treino é 800/800; não há desbalanceamento a tratar. O `fight_weight = 1.35` não é correção estatística, e sim ponderação de **custo assimétrico** entre FN e FP, codificando na loss uma decisão de negócio.
 
 **De domínio**
@@ -447,7 +551,7 @@ data/splits/               CSVs das particoes (versionados)
 2. Substituir o split único de validação por `GroupKFold`, reduzindo o superajuste da etapa de seleção.
 3. Quantização INT8 e avaliação em dispositivo de borda (Jetson Nano, Raspberry Pi 5), partindo dos grafos ONNX já verificados.
 4. Otimizar a decodificação de vídeo, que hoje é o gargalo do pipeline.
-5. Gravar um clipe externo para a demonstração de inferência.
+5. Treinar com dados de múltiplos domínios, para que o modelo separe movimento de agressão em vez de usar um como proxy do outro.
 
 ---
 

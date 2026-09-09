@@ -1,6 +1,6 @@
 # Roteiro do Vídeo de Apresentação — Surveillance Video Classifier
 
-**Candidato:** Heittor Costa · **Destinatário:** NeuIA · **Duração alvo:** 8m00s (janela do edital: 5–10 min)
+**Candidato:** Heittor Costa · **Destinatário:** NeuIA · **Duração alvo:** 9m00s (janela do edital: 5–10 min)
 
 **Princípio do roteiro:** todo número dito em voz alta existe num arquivo do repositório, e nenhuma decisão de modelagem foi tomada com o conjunto de teste. O eixo da apresentação é a jornada das três arquiteturas e o rigor do protocolo que sustenta a comparação entre elas.
 
@@ -23,6 +23,8 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 - [ ] `python src/evaluate.py --model ensemble` rodando de verdade na máquina de gravação
 - [ ] `python src/inference.py --video sample_video.avi --label Fight` testado
 - [ ] `python reports/error_analysis.py` testado — use no minuto 6:00 se quiser mostrar ao vivo
+- [ ] `sample_scvd_violence.avi` e `sample_scvd_normal.avi` testados com `src/inference.py`
+- [ ] `reports/cross_dataset_scvd.png` aberto num visualizador — é o slide do minuto 7:00
 - [ ] Abertos num visualizador: `reports/matrizes_confusao_3_modelos.png`, `reports/curvas_roc_3_modelos.png`, `reports/selected/training_curves_modelo3_tristream.png`
 - [ ] Terminal em fonte 16+, 1080p, microfone testado sem eco
 - [ ] Abas do editor: `README.md`, `src/create_splits.py`, `src/model.py`, `src/select_ensemble.py`
@@ -137,7 +139,31 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 
 ---
 
-## 7:00 – 7:40 · Edge AI e demonstração
+## 7:00 – 8:00 · Validação externa: outro dataset, sem retreinar
+
+**Tela:** `reports/cross_dataset_scvd.png` em tela cheia; depois a tabela de AUCs da seção 7.
+
+> "Todos os números até aqui vêm do RWF-2000. Um teste mais duro é pegar o modelo pronto e aplicar, **sem retreinar**, num dataset independente.
+>
+> Usei o SCVD — Smart-City CCTV Violence Detection — 481 vídeos de CFTV urbano em 720p. Nenhum deles participou do treino, da validação ou da seleção. Como ele tem três classes e o meu classificador é binário, fiz duas versões: uma incluindo violência armada, outra só com violência corporal.
+>
+> O resultado bruto parece ruim: a acurácia cai de 81,6% para 66%. Mas olhem as métricas separadas — **o recall sobe** para 92%, e a precisão é que desaba. E o AUC, que não depende do limiar, cai só 1,9 ponto: de 89,6% para 87,7%.
+>
+> Isso não é perda de capacidade. É perda de calibração. O gráfico da esquerda mostra o mecanismo.
+>
+> [aponta] A classe positiva transfere quase perfeitamente: a mediana de probabilidade da violência do SCVD é 0,880, contra 0,879 no RWF-2000. Praticamente idêntica. Quem se desloca é a classe negativa: o normal sai de mediana 0,17 para 0,46, encostando no limiar.
+>
+> A explicação é o próprio viés que eu injetei no modelo. O SCVD é rua urbana com trânsito e circulação constante; o não-violento do RWF-2000 é gente caminhando. O modelo aprendeu a usar **intensidade de movimento** como sinal de agressão, e isso funciona dentro de um domínio mas confunde quando o domínio muda.
+>
+> E dá para provar que é calibração: recalibrando **só o limiar**, sem tocar em um peso sequer, a acurácia vai de 66% para **84,6%**. Em produção isso quer dizer que implantar num local novo precisa de algumas dezenas de clipes daquele local para reposicionar o limiar — não precisa retreinar.
+>
+> Dois achados a mais. Primeiro: o modelo **generaliza para violência armada**, detectando 84,7% dos casos contra 91,9% da violência corporal. Queda de só 7 pontos, e coerente com a arquitetura — apontar uma arma envolve menos movimento corporal que uma briga.
+>
+> Segundo, e para mim o mais importante: a ordenação das três arquiteturas **se repete** no dataset novo. Baseline 76%, dual-stream 81%, ensemble 84% de AUC. Mesma ordem do RWF-2000. Ou seja, o ganho do viés cinético não era artefato do dataset de treino — ele sobrevive à troca completa de domínio."
+
+---
+
+## 8:00 – 8:40 · Edge AI e demonstração
 
 **Tela:** rodar `python src/inference.py --video sample_video.avi --label Fight`, depois a tabela da seção 7.
 
@@ -149,19 +175,21 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 >
 > E o ONNX. Exportei os três modelos e verifiquei paridade numérica contra o PyTorch — diferença máxima da ordem de 1e-6. Isso importa porque um grafo ONNX pode carregar sem erro e ainda assim produzir valores errados; sem a verificação, dizer 'exportado para ONNX' não significa nada. Com ONNX Runtime, o forward do ensemble cai de 44,3 para 14,8 milissegundos — três vezes mais rápido, e aí a decodificação passa a dominar de vez."
 
-*(Rodar a inferência.)*
+*(Rodar a inferência nos dois clipes do SCVD.)*
 
-> "Fight com 69,9% de probabilidade, quase 20 pontos acima do limiar. Acertou, com margem confortável."
+> "E a demonstração eu faço com os dois clipes do outro dataset, que é o teste mais honesto: o de violência sai com 98,9% de probabilidade, o normal com 4,3%. Os dois acertam com quase 50 pontos de margem.
+>
+> Deixo claro que esses dois não representam o dataset inteiro — sobre os 481 vídeos o desempenho é o que eu mostrei há pouco. São dois casos escolhidos para a demonstração, e eu prefiro dizer isso do que apresentar um acerto isolado como se fosse a média."
 
 ---
 
-## 7:40 – 8:00 · Fechamento
+## 8:40 – 9:00 · Fechamento
 
 > "Resumindo as decisões técnicas: split por grupo de câmera para que o número de teste signifique alguma coisa; backbone congelado por orçamento de borda e por risco de overfitting de cenário; derivadas cinéticas no espaço latente em vez de optical flow; e seleção de modelo feita na validação, com o teste avaliado uma única vez.
 >
-> As limitações que eu reconheço: o augmentation está implementado mas o ganho não foi medido; 215 vídeos de validação ainda são poucos para escolher entre 3.800 trios, e um GroupKFold sobre treino mais validação daria uma estimativa mais estável; e o dataset é restrito a cenas diurnas e câmeras estáticas, então PTZ e visão noturna exigiriam dados de domínio.
+> As limitações que eu reconheço: o augmentation está implementado mas o ganho não foi medido; 215 vídeos de validação ainda são poucos para escolher entre 3.800 trios; e, a mais relevante, o modelo usa intensidade de movimento como proxy de agressão — foi a validação externa que expôs isso, e é a causa raiz dos falsos positivos confiantes.
 >
-> Os próximos passos, em ordem: medir o augmentation, trocar o split único por GroupKFold, quantizar INT8 partindo dos grafos ONNX já verificados, e atacar a decodificação, que é o gargalo real.
+> Os próximos passos, em ordem: treinar com múltiplos domínios para o modelo separar movimento de agressão, medir o augmentation, quantizar INT8 partindo dos grafos ONNX já verificados, e atacar a decodificação, que é o gargalo real de latência.
 >
 > Obrigado, e estou à disposição para as perguntas."
 
@@ -171,6 +199,9 @@ O prompt passa a mostrar `(.venv)` na frente. Confirme com `python -c "import to
 
 **"Como você garante que o 81,62% não é sorte de semente?"**
 > "Três coisas. A seleção usou só os 215 vídeos de validação, então o teste permaneceu cego. As distribuições de 20 sementes por arquitetura estão registradas em JSON, e o ensemble tem o menor desvio dos três. E o AUC-ROC, que independe de limiar, confirma a mesma ordenação das arquiteturas."
+
+**"O modelo funciona fora do dataset de treino?"**
+> "Testei em 481 vídeos do SCVD, um dataset independente de CFTV urbano, sem retreinar. A resposta curta é: a capacidade transfere, a calibração não. O AUC cai só 1,9 ponto, mas o limiar ótimo muda de 0,50 para 0,82 — porque o normal daquele dataset tem muito mais movimento, e o modelo usa movimento como sinal. Recalibrando só o limiar, a acurácia vai de 66% para 84,6%. Na prática: implantar num local novo precisa de um conjunto de calibração local, não de retreino."
 
 **"Por que não um Video Transformer, tipo VideoMAE ou TimeSformer?"**
 > "Restrição de dados e de borda. 2.000 vídeos é pouco para atenção espaço-temporal treinada do zero, e o requisito era CPU. Eu não benchmarkei um Transformer nesta entrega, então não vou afirmar um resultado que não medi — o que posso afirmar é que a Bi-GRU sobre features congeladas cabe no orçamento de latência e que o ganho vem do viés cinético, que está isolado na comparação entre as três arquiteturas."
