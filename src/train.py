@@ -222,9 +222,13 @@ def main():
 
     print(f"\nMelhor epoca: {best_epoch} | val_loss {best_val_loss:.4f} | checkpoint: {out_path}")
 
+    # Artefatos por semente vao para reports/pool/ (nao versionado): treinar um pool
+    # de 20 sementes por arquitetura geraria 160 arquivos no meio de reports/.
+    # As curvas dos modelos efetivamente selecionados ficam em reports/selected/.
     tag = f"{args.arch}_seed{args.seed}"
-    history_path = f"reports/training_history_{tag}.json"
-    curves_path = f"reports/training_curves_{tag}.png"
+    os.makedirs("reports/pool", exist_ok=True)
+    history_path = f"reports/pool/training_history_{tag}.json"
+    curves_path = f"reports/pool/training_curves_{tag}.png"
 
     with open(history_path, "w", encoding="utf-8") as f:
         json.dump({

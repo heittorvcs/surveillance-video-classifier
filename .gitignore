@@ -29,5 +29,4 @@ models/pool/
 logs/
 
 # Artefatos por semente do pool (regeraveis; so os modelos selecionados sao versionados)
-reports/training_curves_*_seed*.png
-reports/training_history_*_seed*.json
+reports/pool/

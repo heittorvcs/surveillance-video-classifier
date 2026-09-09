@@ -369,6 +369,7 @@ reports/
   generate_evolution_charts.py     matrizes de confusao, ROC e dashboard
   generate_mosaic_preview.py       mosaico de predicao sobre um video
   selected/                        curvas e historico dos modelos selecionados
+  pool/                            curvas por semente do pool (nao versionado)
 tests/                     testes das particoes anti-leakage
 models/                    checkpoints e grafos ONNX
 data/splits/               CSVs das particoes (versionados)
