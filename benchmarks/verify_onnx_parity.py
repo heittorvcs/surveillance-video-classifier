@@ -32,6 +32,12 @@ from src.model import load_classifier
 
 
 def timeit(fn, runs, warmup=5):
+    """
+    Retorna (mediana, p95) em milissegundos.
+
+    Mediana, e nao media: em CPU compartilhada uma unica pausa do escalonador
+    desloca a media em dezenas de porcento, enquanto a mediana permanece estavel.
+    """
     for _ in range(warmup):
         fn()
     samples = []
@@ -40,7 +46,7 @@ def timeit(fn, runs, warmup=5):
         fn()
         samples.append((time.perf_counter() - t0) * 1000)
     arr = np.array(samples)
-    return float(arr.mean()), float(np.percentile(arr, 95))
+    return float(np.median(arr)), float(np.percentile(arr, 95))
 
 
 def main():

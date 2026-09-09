@@ -54,7 +54,13 @@ def hardware_profile():
 
 
 def timeit(fn, runs, warmup=5):
-    """Retorna (media, desvio, p95) em milissegundos."""
+    """
+    Retorna (mediana, desvio, p95) em milissegundos.
+
+    Mediana, e nao media: em CPU compartilhada uma unica pausa do escalonador
+    desloca a media em dezenas de porcento, enquanto a mediana permanece estavel.
+    O desvio continua sendo reportado para tornar a dispersao visivel.
+    """
     for _ in range(warmup):
         fn()
     samples = []
@@ -63,7 +69,7 @@ def timeit(fn, runs, warmup=5):
         fn()
         samples.append((time.perf_counter() - t0) * 1000)
     arr = np.array(samples)
-    return float(arr.mean()), float(arr.std(ddof=1)) if len(arr) > 1 else 0.0, float(np.percentile(arr, 95))
+    return float(np.median(arr)), float(arr.std(ddof=1)) if len(arr) > 1 else 0.0, float(np.percentile(arr, 95))
 
 
 def count_params(*modules):
@@ -141,28 +147,55 @@ def main():
 
     feat = run_backbone()
 
+    # 3) Modelos medidos de forma INTERCALADA
+    #
+    # Medir cada modelo num bloco separado torna a comparacao invalida: uma pausa do
+    # escalonador durante o bloco de um modelo o penaliza sozinho, e ja produziu aqui
+    # o resultado fisicamente impossivel de o baseline aparecer mais lento que o
+    # ensemble, que roda o mesmo backbone mais duas cabecas. Intercalando, qualquer
+    # contencao transitoria atinge os tres na mesma proporcao e a comparacao e pareada.
+    names = list(heads)
+
+    def run_e2e(head):
+        b, t, c, h, w = dummy_video.shape
+        x = dummy_video.view(b * t, c, h, w)
+        f = avgpool(backbone(x)).flatten(1).view(b, t, -1)
+        return head(f)
+
+    for _ in range(5):  # aquecimento
+        for name in names:
+            heads[name](feat)
+            run_e2e(heads[name])
+
+    head_samples = {n: [] for n in names}
+    e2e_samples = {n: [] for n in names}
+    for _ in range(args.runs):
+        for name in names:
+            head = heads[name]
+            t0 = time.perf_counter()
+            head(feat)
+            head_samples[name].append((time.perf_counter() - t0) * 1000)
+
+            t0 = time.perf_counter()
+            run_e2e(head)
+            e2e_samples[name].append((time.perf_counter() - t0) * 1000)
+
     rows = []
-    for name, head in heads.items():
-        head_ms, head_std, _ = timeit(lambda h=head: h(feat), args.runs)
-
-        def run_e2e(h=head):
-            b, t, c, h_, w = dummy_video.shape
-            x = dummy_video.view(b * t, c, h_, w)
-            f = avgpool(backbone(x)).flatten(1).view(b, t, -1)
-            return h(f)
-
-        e2e_ms, e2e_std, e2e_p95 = timeit(run_e2e, args.runs)
-        params = backbone_params + count_params(head)
+    for name in names:
+        head_arr = np.array(head_samples[name])
+        e2e_arr = np.array(e2e_samples[name])
+        e2e_ms = float(np.median(e2e_arr))
+        params = backbone_params + count_params(heads[name])
 
         rows.append({
             "model": name,
             "params_total": params,
-            "params_head": count_params(head),
-            "head_ms": head_ms,
-            "head_std": head_std,
+            "params_head": count_params(heads[name]),
+            "head_ms": float(np.median(head_arr)),
+            "head_std": float(head_arr.std(ddof=1)),
             "forward_ms": e2e_ms,
-            "forward_std": e2e_std,
-            "forward_p95": e2e_p95,
+            "forward_std": float(e2e_arr.std(ddof=1)),
+            "forward_p95": float(np.percentile(e2e_arr, 95)),
             "with_decode_ms": (e2e_ms + decode_ms) if decode_ms else None,
         })
 
@@ -177,6 +210,7 @@ def main():
               f"{(r['with_decode_ms'] if r['with_decode_ms'] else float('nan')):13.2f} "
               f"{1000.0/total:10.1f}")
     print("=" * 96)
+    print("Medicoes intercaladas entre os modelos; valores sao medianas.")
     print("Forward = backbone + cabeca, sobre tensor sintetico (sem I/O).")
     print("+decode = forward + decodificacao/pre-processamento de um clipe real.")
     print("Valores dependem do hardware acima; regenere na maquina alvo antes de citar.\n")
@@ -184,9 +218,9 @@ def main():
     payload = {
         "hardware": hw,
         "runs": args.runs,
-        "decode_ms": decode_ms,
+        "decode_median_ms": decode_ms,
         "decode_p95_ms": decode_p95,
-        "backbone_ms": backbone_ms,
+        "backbone_median_ms": backbone_ms,
         "backbone_p95_ms": backbone_p95,
         "models": rows,
     }

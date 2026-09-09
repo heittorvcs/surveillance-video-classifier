@@ -2,14 +2,14 @@
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-2.7x%20mais%20r%C3%A1pido-005ced.svg)](https://onnxruntime.ai/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-3.0x%20mais%20r%C3%A1pido-005ced.svg)](https://onnxruntime.ai/)
 [![Acurácia](https://img.shields.io/badge/Acur%C3%A1cia%20(teste%20cego)-81.62%25-brightgreen.svg)]()
 [![Recall Fight](https://img.shields.io/badge/Recall%20Fight-85.23%25-success.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > Classificação de vídeos de vigilância para detecção de agressão física em câmeras estáticas de CFTV, com inferência em CPU. A diretriz de engenharia é a assimetria de custo entre os erros: um falso positivo custa segundos de atenção de um vigilante; um falso negativo é uma agressão que ninguém viu.
 
-**Semente, trio de membros e limiar foram escolhidos exclusivamente sobre o split de validação; o conjunto de teste foi avaliado uma única vez.** O protocolo está detalhado na [seção 5](#5-validação-estatística).
+**Semente, trio de membros e limiar são escolhidos exclusivamente sobre o split de validação. O conjunto de teste entra apenas na avaliação final, depois de todas as decisões de modelagem.** O protocolo está detalhado na [seção 5](#5-validação-estatística).
 
 ---
 
@@ -135,7 +135,7 @@ Todas as arquiteturas vivem em [`src/model.py`](src/model.py) e são importadas 
 * Comitê de 3 cabeças com fusão por média das probabilidades:
   1. **TriStream cinético** — aparência, velocidade Δ*f_t* e aceleração Δ²*f_t* = Δ*f_t* − Δ*f_{t−1}*, com pooling Mean + Max.
   2. e 3. **DualStream Mean+Max**, duas sementes distintas.
-* O backbone roda **uma única vez por vídeo**; as três cabeças consomem as mesmas features e custam 6,0 ms somadas.
+* O backbone roda **uma única vez por vídeo**; as três cabeças consomem as mesmas features e custam 7,05 ms somadas.
 * Artefatos: [`models/ensemble/`](models/ensemble/) — nomes neutros (`member_*.pth`), porque a semente escolhida muda a cada reexecução do protocolo de seleção.
 
 ---
@@ -242,23 +242,28 @@ python reports/generate_evolution_charts.py
 
 Medido por [`benchmarks/benchmark_detailed_latency.py`](benchmarks/benchmark_detailed_latency.py), que roda os três modelos **no mesmo laço, na mesma execução**, e registra o hardware junto com os números.
 
-Hardware da medição: Intel64 Family 6 Model 151 (12 threads lógicos, PyTorch usando 6), Windows 11, PyTorch 2.14.0+cpu. 30 repetições, 5 de aquecimento.
+Hardware da medição: Intel64 Family 6 Model 151 (12 threads lógicos, PyTorch usando 6), Windows 11, PyTorch 2.14.0+cpu. 60 repetições, 5 de aquecimento, valores em mediana.
 
-| Modelo | Parâmetros | Cabeça | Forward (backbone + cabeça) | + decodificação | Clipes/s |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| Modelo 1: Baseline | 1.17M | 0.80 ms | 35.76 ms | 79.63 ms | 12.6 |
-| Modelo 2: Dual-Stream | 1.44M | 1.54 ms | 36.32 ms | 80.19 ms | 12.5 |
-| Modelo 3: Ensemble | 2.86M | 5.99 ms | 40.71 ms | 84.58 ms | 11.8 |
+| Modelo | Parâmetros | Cabeça | Forward (backbone + cabeça) | p95 | + decodificação | Clipes/s |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Modelo 1: Baseline | 1.17M | 0.92 ms | 40.94 ms | 52.83 ms | 84.07 ms | 11.9 |
+| Modelo 2: Dual-Stream | 1.44M | 1.85 ms | 41.25 ms | 49.50 ms | 84.38 ms | 11.9 |
+| Modelo 3: Ensemble | 2.86M | 7.05 ms | 47.77 ms | 59.33 ms | 90.90 ms | 11.0 |
 
-Duas leituras que a tabela anterior deste README escondia:
+Duas observações que a separação entre decodificação e forward torna visíveis:
 
-* **A decodificação do vídeo custa 43.87 ms — mais que o backbone (34.14 ms).** O gargalo do pipeline não é a rede; é ler o arquivo. Otimizar o modelo sem tocar no I/O tem retorno limitado.
-* **O ensemble custa apenas 4,95 ms a mais que o baseline**, porque as três cabeças compartilham a mesma passada do backbone. É isso que torna um comitê viável na borda.
+* **A decodificação do vídeo custa 43.13 ms — mais que o backbone inteiro (38.26 ms).** O gargalo do pipeline não é a rede; é ler o arquivo. Otimizar o modelo sem tocar no I/O tem retorno limitado.
+* **O ensemble custa 6,8 ms a mais que o baseline**, porque as três cabeças compartilham a mesma passada do backbone — 7,05 ms de cabeças contra 0,92 ms. É isso que torna um comitê viável na borda.
+
+Duas decisões do próprio benchmark, que afetam a validade da comparação:
+
+* **Mediana, não média.** Em CPU compartilhada, uma única pausa do escalonador desloca a média em dezenas de porcento. O desvio e o p95 continuam reportados para tornar a dispersão visível.
+* **Medições intercaladas.** Os três modelos são cronometrados round-robin dentro do mesmo laço, e não em blocos separados. Medidos em blocos, uma contenção transitória penaliza um modelo sozinho — chegou a produzir aqui o resultado impossível de o baseline aparecer mais rápido que o ensemble, que roda o mesmo backbone mais duas cabeças.
 
 Regenere na máquina alvo antes de citar qualquer valor absoluto:
 
 ```bash
-python benchmarks/benchmark_detailed_latency.py --runs 30
+python benchmarks/benchmark_detailed_latency.py --runs 60
 ```
 
 ### ONNX: exportação verificada
@@ -272,11 +277,11 @@ python benchmarks/verify_onnx_parity.py --model ensemble
 
 | Modelo | Diferença máxima ONNX × PyTorch | PyTorch CPU | ONNX Runtime CPU | Ganho |
 | :--- | :---: | :---: | :---: | :---: |
-| Baseline | 1.2e-06 | 37.55 ms | **14.69 ms** | 2.56× |
-| Dual-Stream | 9.5e-07 | 41.02 ms | **14.55 ms** | 2.82× |
-| Ensemble | 1.8e-07 | 44.86 ms | **16.88 ms** | 2.66× |
+| Baseline | 1.2e-06 | 39.30 ms | **14.22 ms** | 2.76× |
+| Dual-Stream | 9.5e-07 | 42.81 ms | **15.54 ms** | 2.75× |
+| Ensemble | 1.8e-07 | 44.32 ms | **14.83 ms** | 2.99× |
 
-Com ONNX Runtime o forward do ensemble cai para 16.88 ms e o custo por clipe passa a ser dominado pela decodificação. Resultados em [`reports/onnx_parity_*.json`](reports/).
+Com ONNX Runtime o forward do ensemble cai para 14.83 ms, e o custo por clipe passa a ser dominado pela decodificação — que sozinha custa três vezes mais que a inferência. Resultados em [`reports/onnx_parity_baseline.json`](reports/onnx_parity_baseline.json), [`reports/onnx_parity_dualstream.json`](reports/onnx_parity_dualstream.json) e [`reports/onnx_parity_ensemble.json`](reports/onnx_parity_ensemble.json).
 
 ---
 

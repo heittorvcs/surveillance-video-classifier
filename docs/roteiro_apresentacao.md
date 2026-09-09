@@ -2,7 +2,7 @@
 
 **Candidato:** Heittor Costa · **Destinatário:** NeuIA · **Duração alvo:** 8m00s (janela do edital: 5–10 min)
 
-**Princípio do roteiro:** todo número dito em voz alta existe num arquivo do repositório e foi obtido com o conjunto de teste avaliado uma única vez. O eixo da apresentação é a jornada das três arquiteturas e o rigor do protocolo que sustenta a comparação entre elas.
+**Princípio do roteiro:** todo número dito em voz alta existe num arquivo do repositório, e nenhuma decisão de modelagem foi tomada com o conjunto de teste. O eixo da apresentação é a jornada das três arquiteturas e o rigor do protocolo que sustenta a comparação entre elas.
 
 ---
 
@@ -128,11 +128,11 @@
 
 > "Sobre execução na borda, dois resultados.
 >
-> Primeiro: eu medi os três modelos no mesmo laço e na mesma execução, separando decodificação de forward. A decodificação do vídeo custa 43,9 milissegundos — **mais que o backbone inteiro**, que custa 34. O gargalo do pipeline não é a rede, é ler o arquivo. Isso muda a prioridade de otimização: mexer só no modelo tem retorno limitado.
+> Primeiro: eu medi os três modelos intercalados, no mesmo laço, e usando mediana em vez de média — em CPU compartilhada uma pausa do escalonador desloca a média em dezenas de porcento, e medir em blocos separados penaliza um modelo sozinho. A decodificação do vídeo custa 43,1 milissegundos — **mais que o backbone inteiro**, que custa 38,3. O gargalo do pipeline não é a rede, é ler o arquivo. Isso muda a prioridade de otimização.
 >
-> Segundo: o ensemble custa apenas 5 milissegundos a mais que o baseline, porque as três cabeças compartilham a mesma passada do backbone.
+> Segundo: o ensemble custa 6,8 milissegundos a mais que o baseline, porque as três cabeças compartilham a mesma passada do backbone.
 >
-> E o ONNX. Exportei os três modelos e verifiquei paridade numérica contra o PyTorch — diferença máxima da ordem de 1e-6. Isso importa porque um grafo ONNX pode carregar sem erro e ainda assim produzir valores errados; sem a verificação, dizer 'exportado para ONNX' não significa nada. Com ONNX Runtime, o forward do ensemble cai de 44,9 para 16,9 milissegundos — 2,7 vezes mais rápido, e aí a decodificação passa a dominar de vez."
+> E o ONNX. Exportei os três modelos e verifiquei paridade numérica contra o PyTorch — diferença máxima da ordem de 1e-6. Isso importa porque um grafo ONNX pode carregar sem erro e ainda assim produzir valores errados; sem a verificação, dizer 'exportado para ONNX' não significa nada. Com ONNX Runtime, o forward do ensemble cai de 44,3 para 14,8 milissegundos — três vezes mais rápido, e aí a decodificação passa a dominar de vez."
 
 *(Rodar a inferência.)*
 
