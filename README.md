@@ -11,8 +11,6 @@ Classificação de vídeos de vigilância para detecção de agressão física e
 
 **Semente, membros do ensemble e limiar são escolhidos exclusivamente sobre a validação. O teste entra apenas na avaliação final, depois de todas as decisões de modelagem.**
 
-> **Vídeo de apresentação (YouTube):** `[INSERIR_LINK_DO_VIDEO_AQUI]`
-
 ---
 
 ## Resultados no teste cego
