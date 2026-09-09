@@ -7,447 +7,239 @@
 [![Recall Fight](https://img.shields.io/badge/Recall%20Fight-85.23%25-success.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> Classificação de vídeos de vigilância para detecção de agressão física em câmeras estáticas de CFTV, com inferência em CPU. A diretriz de engenharia é a assimetria de custo entre os erros: um falso positivo custa segundos de atenção de um vigilante; um falso negativo é uma agressão que ninguém viu.
+Classificação de vídeos de vigilância para detecção de agressão física em câmeras estáticas de CFTV, com inferência em CPU. A diretriz de engenharia é a assimetria de custo entre os erros: um falso positivo custa segundos de atenção de um vigilante; um falso negativo é uma agressão que ninguém viu.
 
-**Semente, trio de membros e limiar são escolhidos exclusivamente sobre o split de validação. O conjunto de teste entra apenas na avaliação final, depois de todas as decisões de modelagem.** O protocolo está detalhado na [seção 5](#5-validação-estatística).
+**Semente, membros do ensemble e limiar são escolhidos exclusivamente sobre a validação. O teste entra apenas na avaliação final, depois de todas as decisões de modelagem.**
 
----
-
-## Vídeo de Apresentação Técnica
-
-> **Link do vídeo (YouTube):** `[INSERIR_LINK_DO_VIDEO_AQUI]`
+> **Vídeo de apresentação (YouTube):** `[INSERIR_LINK_DO_VIDEO_AQUI]`
 
 ---
 
-## Resultados no teste cego (185 vídeos, 88 Fight / 97 NonFight)
+## Resultados no teste cego
+
+185 vídeos de câmeras inéditas (88 `Fight`, 97 `NonFight`), os três modelos sob protocolo idêntico e limiar 0,50:
 
 | Métrica | Modelo 1: Baseline | Modelo 2: Dual-Stream | Modelo 3: Ensemble |
 | :--- | :---: | :---: | :---: |
 | **Acurácia** | 76.22% | 78.38% | **81.62%** |
-| **Recall (Fight)** | 71.59% | **90.91%** | 85.23% |
-| **Precisão (Fight)** | 76.83% | 71.43% | **78.12%** |
+| **Recall** (Fight) | 71.59% | **90.91%** | 85.23% |
+| **Precisão** (Fight) | 76.83% | 71.43% | **78.12%** |
 | **F1-Score** | 74.12% | 80.00% | **81.52%** |
 | **AUC-ROC** | 85.63% | 89.26% | **89.60%** |
-| **Falsos negativos** | 25 | **8** | 13 |
-| **Falsos positivos** | 19 | 32 | 21 |
+| Falsos negativos / positivos | 25 / 19 | **8** / 32 | 13 / 21 |
 | Parâmetros | 1.17M | 1.44M | 2.86M |
-| Limiar | 0.50 | 0.50 | 0.50 |
 
-Os três foram selecionados sob o mesmo protocolo — melhor candidato por F1 na validação, limiar fixo em 0,50, teste tocado uma vez. Sem essa uniformidade a comparação mediria o procedimento de seleção, não a arquitetura.
+O Modelo 2 perde menos agressões (8 FN) mas dispara 32 alarmes falsos. O Modelo 3 é o melhor equilíbrio e o maior AUC-ROC — a métrica que independe do limiar.
 
-O Modelo 2 tem o menor número de falsos negativos (8), mas paga com 32 falsos positivos. O Modelo 3 é o melhor equilíbrio e o maior AUC-ROC — a métrica que independe do limiar e mede poder discriminativo puro.
+```bash
+python src/evaluate.py --model ensemble
+```
+
+JSONs: [`baseline`](reports/test_metrics_baseline.json) · [`dualstream`](reports/test_metrics_dualstream.json) · [`ensemble`](reports/test_metrics_ensemble.json)
 
 ---
 
-## Demonstração prática de inferência
+## Demonstração de inferência
 
 ![Mosaico de predição](reports/sample_prediction_mosaic.png)
 
-```
-$ python src/inference.py --video sample_video.avi --label Fight
-
-Decisao:                 Fight (violencia detectada)
-Probabilidade Fight:     69.85%
-Limiar:                  0.50 (margem: 19.8 p.p.)
-Rotulo real:             Fight -> ACERTO
-Decodificacao + pre-proc:   53.58 ms
-Forward do modelo:          61.11 ms
-Total por clipe:           114.69 ms
-```
-
-O clipe é uma gravação de câmera fixa em formato RWF-2000 (5 s, 320×240, 30 FPS), rótulo real `Fight`, de câmera não vista em treino.
-
-### Inferência em vídeos de outro dataset
-
-Dois clipes do **SCVD**, um dataset independente que não participou de nenhuma etapa do treino ([seção 7](#7-validação-externa-generalização-para-outro-dataset)). São 720p, resolução e domínio diferentes dos dados de treino:
-
-| Vídeo | Rótulo real | Decisão | P(Fight) | Margem |
-| :--- | :---: | :---: | :---: | :---: |
-| [`sample_scvd_violence.avi`](sample_scvd_violence.avi) | `Fight` | Fight | 98.86% | 48.9 p.p. |
-| [`sample_scvd_normal.avi`](sample_scvd_normal.avi) | `NonFight` | NonFight | 4.31% | 45.7 p.p. |
+| Vídeo | Origem | Real | Decisão | P(Fight) |
+| :--- | :--- | :---: | :---: | :---: |
+| [`sample_video.avi`](sample_video.avi) | RWF-2000, câmera inédita | `Fight` | Fight | 69.85% |
+| [`sample_scvd_violence.avi`](sample_scvd_violence.avi) | **SCVD**, outro dataset | `Fight` | Fight | 98.86% |
+| [`sample_scvd_normal.avi`](sample_scvd_normal.avi) | **SCVD**, outro dataset | `NonFight` | NonFight | 4.31% |
 
 ```bash
 python src/inference.py --video sample_scvd_violence.avi --label Fight
-python src/inference.py --video sample_scvd_normal.avi   --label NonFight
 ```
 
-Os dois acertam com folga. Não são casos representativos do dataset inteiro — a [seção 7](#7-validação-externa-generalização-para-outro-dataset) reporta o desempenho sobre os 481 vídeos, que é bem mais modesto.
-
-Clipes originais do SCVD (`Test/Violence/t_v007_converted.avi` e `Test/Normal/t_n037_converted.avi`), incluídos apenas para demonstração e com atribuição à fonte.
+Os dois clipes do SCVD vêm de um dataset independente, em 720p, que não participou de nenhuma etapa do treino — incluídos com atribuição à fonte (`Test/Violence/t_v007` e `Test/Normal/t_n037`). Não são casos representativos: a [seção 6](#6-validação-externa-outro-dataset) reporta o desempenho sobre os 481 vídeos.
 
 ---
 
-## 1. Dataset RWF-2000 e anti-leakage
+## 1. Dataset e anti-leakage
 
-**Fonte:** RWF-2000 — *Real World Fighting*, Cheng, Cai & Li (2020).
-Repositório oficial: <https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection>
-Espelho comum: <https://www.kaggle.com/datasets/vulamnguyen/rwf2000>
+**RWF-2000** — *Real World Fighting*, Cheng, Cai & Li (2020). 2.000 gravações reais de CFTV estático, 5 s a 30 FPS, balanceado.
+Fonte: <https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection> · espelho: <https://www.kaggle.com/datasets/vulamnguyen/rwf2000>
 
-2.000 gravações reais de câmeras de vigilância estáticas, 5 segundos a 30 FPS (150 quadros por clipe), 1.000 `Fight` e 1.000 `NonFight`.
+* **`Fight` (1)** — agressões físicas: socos, chutes, empurrões, confrontos corporais.
+* **`NonFight` (0)** — monitoramento normal: caminhadas, conversas, aglomerações pacíficas, tráfego.
 
-* **`Fight` (1):** agressões físicas — socos, chutes, empurrões, confrontos corporais.
-* **`NonFight` (0):** monitoramento normal — caminhadas, conversas, aglomerações pacíficas, tráfego.
+**A armadilha:** vários clipes vêm de cortes temporais do **mesmo vídeo original** — mesma câmera, fundo e iluminação. Um split aleatório faria o modelo memorizar cenários. [`src/create_splits.py`](src/create_splits.py) deriva o identificador do vídeo original do nome do arquivo e o usa como grupo no `GroupShuffleSplit`:
 
-Após baixar, extraia para `archive/RWF-2000/{train,val}/{Fight,NonFight}/*.avi`.
-
-### Tratamento anti-leakage
-
-No RWF-2000, vários clipes vêm de cortes temporais do **mesmo vídeo original** — mesma câmera, mesmo fundo, mesma iluminação, mesmo ângulo. Um split aleatório faria o modelo memorizar cenários em vez de aprender a ação.
-
-[`src/create_splits.py`](src/create_splits.py) deriva o identificador do vídeo original do nome do arquivo (prefixo antes do sufixo `_<n>.avi`) e usa esse identificador como grupo:
-
-| Conjunto | Vídeos | Fight | NonFight | Grupos únicos | Origem |
+| Conjunto | Vídeos | Fight | NonFight | Grupos | Origem |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Treinamento** | 1.600 | 800 | 800 | 765 | Pasta oficial `train` do RWF-2000 |
-| **Validação** | 215 | 112 | 103 | 90 | Pasta oficial `val`, metade por `GroupShuffleSplit` |
-| **Teste cego** | 185 | 88 | 97 | 90 | Pasta oficial `val`, outra metade |
+| Treinamento | 1.600 | 800 | 800 | 765 | Pasta oficial `train` |
+| Validação | 215 | 112 | 103 | 90 | Pasta oficial `val`, metade |
+| Teste cego | 185 | 88 | 97 | 90 | Pasta oficial `val`, outra metade |
 
-A separação treino/validação é herdada do split oficial do RWF-2000; o `GroupShuffleSplit` divide a pasta oficial `val` em validação e teste sem que uma câmera apareça dos dois lados.
-
-A garantia não é apenas declarada — é verificada. `create_splits.py` falha se qualquer grupo atravessar a fronteira, e há testes automatizados sobre os CSVs versionados:
-
-```bash
-python tests/test_splits.py
-```
-
-```
-[PASS] test_both_classes_present_in_every_split
-[PASS] test_labels_are_binary_and_consistent
-[PASS] test_no_file_leakage_between_splits
-[PASS] test_no_group_leakage_between_splits
-[PASS] test_splits_exist_and_have_expected_sizes
-```
-
-Interseção medida entre os três splits: **0 grupos e 0 arquivos**.
+A garantia é verificada, não declarada: `create_splits.py` falha se um grupo atravessar a fronteira, e `python tests/test_splits.py` confirma **0 grupos e 0 arquivos** em comum entre os três splits.
 
 ---
 
-## 2. Decisões de pré-processamento
+## 2. Pré-processamento
 
-1. **Amostragem temporal equidistante (N = 16 quadros).** Quadros consecutivos a 30 FPS carregam pouca informação nova; 16 quadros uniformemente espaçados cobrem os 5 segundos inteiros e reduzem o volume de dados em 89,3%.
-2. **Decodificação seletiva.** `cv2.VideoCapture.grab()` avança o cursor sem decodificar; `read()` é chamado apenas nos 16 instantes escolhidos, evitando decodificar os 134 quadros descartados.
-3. **Padronização espacial e normalização ImageNet.** Redimensionamento para 224×224, BGR → RGB, normalização por canal com μ = [0.485, 0.456, 0.406] e σ = [0.229, 0.224, 0.225] — as mesmas estatísticas com que o backbone foi pré-treinado. O redimensionamento não preserva a proporção 4:3 original.
-4. **Data augmentation com consistência temporal.** Flip horizontal aplicado de forma idêntica aos 16 quadros do clipe.
+1. **16 quadros equidistantes** cobrindo os 5 s do clipe. Quadros vizinhos a 30 FPS carregam pouca informação nova; isso corta 89,3% do volume de dados.
+2. **Decodificação seletiva** — `cv2.VideoCapture.grab()` avança o cursor sem decodificar, e `read()` só é chamado nos 16 instantes escolhidos.
+3. **224×224, BGR→RGB, normalização ImageNet** (μ = [0.485, 0.456, 0.406], σ = [0.229, 0.224, 0.225]) — as mesmas estatísticas do pré-treino do backbone. O resize não preserva a proporção 4:3.
+4. **Data augmentation** — flip horizontal idêntico nos 16 quadros do clipe.
 
-**Sobre o item 4, um cuidado que o backbone congelado exige.** Como as features são extraídas uma única vez e cacheadas, aplicar o flip aleatório nessa passada produziria uma perturbação **fixa** por vídeo, idêntica em todas as épocas — ruído congelado, não augmentation. Por isso [`src/build_cache.py`](src/build_cache.py) materializa **dois caches**, `features_train.pt` e `features_train_flip.pt`, e o treino sorteia entre eles por amostra a cada época ([`FlipAugmentedFeatures`](src/train.py)). Custo: o dobro de disco no cache, zero de compute no treino.
+**Cuidado que o backbone congelado exige:** como as features são extraídas uma vez e cacheadas, aplicar o flip nessa passada daria uma perturbação **fixa** por vídeo, igual em todas as épocas — ruído congelado, não augmentation. Por isso [`src/build_cache.py`](src/build_cache.py) materializa dois caches (original e espelhado) e o treino sorteia entre eles a cada época. Custo: o dobro de disco, zero de compute.
 
-> Os resultados publicados aqui foram treinados **sem** o cache espelhado, porque o dataset bruto não estava disponível no ambiente de retreinamento. Isso mantém a comparação justa com os benchmarks anteriores, mas significa que o ganho do augmentation ainda não está medido.
+> Os resultados publicados foram treinados **sem** o cache espelhado, por indisponibilidade do dataset bruto no ambiente de retreinamento. O ganho do augmentation está implementado, mas não medido.
 
 ---
 
 ## 3. Os três modelos
 
-Todas as arquiteturas vivem em [`src/model.py`](src/model.py) e são importadas por treino, benchmarks e avaliação — não há redefinição duplicada.
+Todas as arquiteturas vivem em [`src/model.py`](src/model.py), importadas por treino, benchmarks e avaliação.
 
-### Modelo 1 — Baseline
-* MobileNetV3-Small pré-treinado no ImageNet e **congelado** (576 dim) + Bi-GRU única (hidden = 64 → 128 dim) com pooling médio temporal.
-* Congelar o backbone é deliberado: com câmeras fixas, o fine-tuning faz os filtros convolucionais se especializarem na textura do fundo em vez do movimento dos atores. Também é o que permite cachear features e treinar 80 modelos em minutos.
-* Limitação estrutural: só enxerga aparência estática *f_t*. Gesticulação vigorosa e agressão têm embeddings parecidos.
+**Modelo 1 — Baseline.** MobileNetV3-Small pré-treinado no ImageNet e **congelado** (576 dim) + Bi-GRU com pooling médio temporal. Congelar é deliberado: com câmeras fixas, o fine-tuning faz os filtros se especializarem na textura do fundo em vez do movimento — e é o que permite cachear features e treinar 80 modelos em minutos. Limitação estrutural: só enxerga aparência estática, então gesticulação vigorosa e agressão têm embeddings parecidos.
 
-### Modelo 2 — Dual-Stream latente
-* Mesmo backbone congelado + duas Bi-GRUs paralelas: aparência (*f_t*) e velocidade latente (Δ*f_t* = *f_t* − *f_{t−1}*).
-* Substitui o optical flow em pixels (centenas de ms por quadro) por uma subtração vetorial no espaço latente de 576 dimensões, de custo desprezível.
-* O efeito é nítido no recall: 71.59% → 90.91%, com os falsos negativos caindo de 25 para 8. O preço são 32 falsos positivos.
+**Modelo 2 — Dual-Stream latente.** Duas Bi-GRUs paralelas: aparência (*f_t*) e velocidade (Δ*f_t* = *f_t* − *f_{t−1}*). Substitui o optical flow em pixels — centenas de ms por quadro — por uma subtração vetorial no espaço latente. O recall salta de 71,6% para 90,9%, ao custo de 32 falsos positivos.
 
-### Modelo 3 — Ensemble cinético Tri-Stream
-* Comitê de 3 cabeças com fusão por média das probabilidades:
-  1. **TriStream cinético** — aparência, velocidade Δ*f_t* e aceleração Δ²*f_t* = Δ*f_t* − Δ*f_{t−1}*, com pooling Mean + Max.
-  2. e 3. **DualStream Mean+Max**, duas sementes distintas.
-* O backbone roda **uma única vez por vídeo**; as três cabeças consomem as mesmas features e custam 7,05 ms somadas.
-* Artefatos: [`models/ensemble/`](models/ensemble/) — nomes neutros (`member_*.pth`), porque a semente escolhida muda a cada reexecução do protocolo de seleção.
+**Modelo 3 — Ensemble cinético.** Comitê de 3 cabeças com média das probabilidades: uma TriStream (aparência + velocidade + aceleração Δ²*f_t*, com pooling Mean+Max) e duas DualStream Mean+Max de sementes distintas. O backbone roda **uma vez por vídeo** e as três cabeças custam 7,05 ms somadas. Artefatos em [`models/ensemble/`](models/ensemble/).
 
 ---
 
-## 4. Reprodução das métricas
+## 4. Validação estatística
 
-```bash
-python src/evaluate.py --model ensemble --save_json reports/test_metrics_ensemble.json
-```
+Com 185 vídeos de teste, a variação entre sementes é da mesma ordem da diferença entre arquiteturas. Por isso a escolha do modelo olha uma distribuição, não um treinamento.
 
-JSONs versionados: [`reports/test_metrics_baseline.json`](reports/test_metrics_baseline.json) · [`reports/test_metrics_dualstream.json`](reports/test_metrics_dualstream.json) · [`reports/test_metrics_ensemble.json`](reports/test_metrics_ensemble.json)
+1. **Pool de candidatos** — 20 sementes por arquitetura, mesmas condições (early stopping por `val_loss` com paciência 5, `fight_weight = 1.35`, `AdamW`, `CosineAnnealingLR`). O teste não é consultado nesta etapa.
+2. **Seleção na validação** — melhor candidato de cada arquitetura, e melhor trio no caso do ensemble, por F1 sobre os 215 vídeos.
+3. **Teste avaliado uma vez**, com o que saiu da etapa anterior.
 
-Registros da seleção, com as distribuições completas na validação: [`reports/selection_baseline.json`](reports/selection_baseline.json) · [`reports/selection_dualstream.json`](reports/selection_dualstream.json) · [`reports/ensemble_selection.json`](reports/ensemble_selection.json)
+| Arquitetura | Candidatos | Acurácia na validação |
+| :--- | :---: | :---: |
+| Modelo 1: Baseline | 20 sementes | 73.28% ± 1.59 |
+| Modelo 2: Dual-Stream | 20 sementes | 74.42% ± 1.90 |
+| Modelo 3: Ensemble | 3.800 trios | **76.81% ± 1.09** |
 
----
-## 5. Validação estatística
+O ensemble tem média mais alta **e** desvio menor — o efeito esperado de um comitê. Registros em [`selection_baseline`](reports/selection_baseline.json) · [`selection_dualstream`](reports/selection_dualstream.json) · [`ensemble_selection`](reports/ensemble_selection.json).
 
-Um único valor de acurácia não significa muito com 185 vídeos de teste: a variação entre sementes é da mesma ordem da diferença entre arquiteturas. Por isso a escolha do modelo não é feita olhando um treinamento, e sim uma distribuição.
+**Duas decisões de protocolo**, ambas tomadas a partir da validação:
 
-### Protocolo
+* **O limiar fica fixo em 0,50 durante a seleção.** Escolher semente e limiar ao mesmo tempo em 215 vídeos superajusta a validação — uma varredura de 91 limiares elegeu θ = 0,15 para o dual-stream, que rendeu 67,5% de precisão no teste. Com o limiar fixo, a seleção mede a arquitetura; o ponto de operação vira decisão separada ([seção 8](#8-ponto-de-operação)).
+* **O critério é F1, não recall sob precisão mínima.** A restrição `precisão ≥ 0,80` é inviável para o baseline: ele só a atinge a θ ≥ 0,71, onde o recall cai para 56%. Um critério que uma das arquiteturas não satisfaz não compara arquiteturas.
 
-1. **Pool de candidatos.** 20 sementes independentes para cada arquitetura, treinadas do zero sob condições idênticas: early stopping por `val_loss` com paciência 5, `CrossEntropyLoss` com `fight_weight = 1.35`, `AdamW` e `CosineAnnealingLR`. O conjunto de teste não é consultado em nenhum momento desta etapa.
-2. **Seleção na validação.** O melhor candidato de cada arquitetura — e o melhor trio, no caso do ensemble — é escolhido por F1 sobre os 215 vídeos de validação ([`src/select_single.py`](src/select_single.py), [`src/select_ensemble.py`](src/select_ensemble.py)).
-3. **Teste avaliado uma única vez**, com o que saiu da etapa anterior.
-
-Distribuições sobre a validação, com limiar fixo em 0,50:
-
-| Arquitetura | Candidatos | Acurácia na validação | Faixa |
-| :--- | :---: | :---: | :---: |
-| Modelo 1: Baseline Bi-GRU | 20 sementes | 73.28% ± 1.59 | [70.70 – 77.21] |
-| Modelo 2: Dual-Stream latente | 20 sementes | 74.42% ± 1.90 | [71.16 – 78.14] |
-| Modelo 3: Ensemble Tri-Stream | 3.800 trios | **76.81% ± 1.09** | [73.02 – 80.47] |
-
-O ensemble tem média mais alta **e** desvio menor — o efeito esperado de um comitê, que reduz a variância entre sementes. No teste, o AUC-ROC, que independe da escolha de limiar, confirma a ordenação: 85.63% → 89.26% → 89.60%.
-
-Registros completos em [`reports/selection_baseline.json`](reports/selection_baseline.json), [`reports/selection_dualstream.json`](reports/selection_dualstream.json) e [`reports/ensemble_selection.json`](reports/ensemble_selection.json).
-
-### Duas decisões de protocolo
-
-**O limiar fica fixo durante a seleção.** Escolher semente e limiar ao mesmo tempo sobre 215 vídeos superajusta a validação: uma varredura de 91 limiares elegeu θ = 0,15 para o dual-stream, que rendeu 67,5% de precisão no teste. Com o limiar fixo em 0,50, a seleção mede a arquitetura; o ponto de operação vira uma decisão separada e explícita ([seção 9](#9-engenharia-de-limiares)).
-
-**O critério é F1, não recall sob restrição de precisão.** A restrição `precisão ≥ 0,80` é estruturalmente inviável para o baseline: na validação ele só a atinge a θ ≥ 0,71, onde o recall cai para 56%. Um critério que uma das arquiteturas não consegue satisfazer transforma a comparação em outra coisa. F1 é neutro e comparável entre as três.
-
-Ambas as decisões foram tomadas a partir do comportamento na validação.
-
-### Reprodução
-
-```bash
-# 1. Pool de candidatos — o teste nunca é consultado
-for s in $(seq 1 20); do
-  python src/train.py --arch baseline     --seed $s --out models/pool/baseline_s$s.pth
-  python src/train.py --arch dualstream   --seed $s --out models/pool/dualstream_s$s.pth
-  python src/train.py --arch tristream    --seed $s --out models/pool/tristream_s$s.pth
-  python src/train.py --arch dualmeanmax  --seed $s --out models/pool/dualmeanmax_s$s.pth
-done
-
-# 2. Seleção na validação e avaliação única no teste
-python src/select_single.py   --arch baseline   --criterion f1 --fixed_threshold 0.50 --export --eval_test
-python src/select_single.py   --arch dualstream --criterion f1 --fixed_threshold 0.50 --export --eval_test
-python src/select_ensemble.py                   --criterion f1 --fixed_threshold 0.50 --export --eval_test
-```
-
-### Análise de overfitting / underfitting
-
-Curvas dos três modelos selecionados, em [`reports/selected/`](reports/selected/):
-
-| Modelo | Semente | Melhor época | Épocas até parar | `val_loss` |
-| :--- | :---: | :---: | :---: | :---: |
-| [Modelo 1: Baseline](reports/selected/training_curves_modelo1_baseline.png) | 1 | 5 | 10 | 0.5314 |
-| [Modelo 2: Dual-Stream](reports/selected/training_curves_modelo2_dualstream.png) | 12 | 2 | 7 | 0.5054 |
-| [Modelo 3: TriStream](reports/selected/training_curves_modelo3_tristream.png) | 17 | 2 | 7 | 0.4603 |
+### Overfitting / underfitting
 
 ![Curvas do Modelo 3](reports/selected/training_curves_modelo3_tristream.png)
 
-O padrão é o mesmo nos três: a perda de treino cai continuamente enquanto a de validação para de melhorar cedo. O early stopping detecta a divergência e restaura o melhor checkpoint — ela é contida, não evitada. Modelos com mais capacidade atingem o mínimo de validação mais cedo, na segunda época, e com `val_loss` menor.
+| Modelo | Semente | Melhor época | Épocas até parar | `val_loss` |
+| :--- | :---: | :---: | :---: | :---: |
+| [Baseline](reports/selected/training_curves_modelo1_baseline.png) | 1 | 5 | 10 | 0.5314 |
+| [Dual-Stream](reports/selected/training_curves_modelo2_dualstream.png) | 12 | 2 | 7 | 0.5054 |
+| [TriStream](reports/selected/training_curves_modelo3_tristream.png) | 17 | 2 | 7 | 0.4603 |
 
-Mecanismos empregados:
-* **Contra underfitting:** transfer learning do MobileNetV3-Small pré-treinado no ImageNet, fornecendo representações densas de 576 dimensões desde a primeira época.
-* **Contra overfitting:** backbone congelado (impede memorização de cenário), `Dropout(0.4)` nas cabeças, `weight_decay = 1e-4` no AdamW e early stopping por `val_loss` com paciência 5.
+O padrão se repete nos três: a perda de treino cai enquanto a de validação para de melhorar cedo. O early stopping detecta e restaura o melhor checkpoint — a divergência é contida, não evitada. Modelos com mais capacidade atingem o mínimo mais cedo e com `val_loss` menor.
 
-`src/train.py` salva curvas e histórico para qualquer arquitetura e semente.
+Mecanismos: transfer learning contra underfitting; backbone congelado, `Dropout(0.4)`, `weight_decay = 1e-4` e early stopping contra overfitting.
 
 ---
 
-## 6. Matrizes de confusão, curvas ROC e análise dos erros
+## 5. Matrizes de confusão, ROC e análise dos erros
 
 ![Matrizes de confusão](reports/matrizes_confusao_3_modelos.png)
 
 ![Curvas ROC](reports/curvas_roc_3_modelos.png)
 
-AUC: baseline 0.856 → dual-stream 0.893 → ensemble 0.896. Esta é a métrica que mede o ganho real, porque não depende da escolha de limiar.
+### Onde o modelo erra
 
-### Análise dos erros
+Contar 13 FN e 21 FP diz pouco. [`reports/error_analysis.py`](reports/error_analysis.py) responde o que muda a decisão de engenharia:
 
-Contar 13 falsos negativos e 21 falsos positivos diz pouco sobre *o que* o modelo erra. [`reports/error_analysis.py`](reports/error_analysis.py) responde três perguntas que mudam a decisão de engenharia.
+**Os falsos positivos são o problema, não os falsos negativos.** A margem mediana até o limiar é 17,3 p.p. nos erros contra 39,8 p.p. nos acertos — mas os FN ficam a 10,1 p.p. (agressões sutis, recuperáveis por calibração) e os FP a 30,2 p.p. Os cinco erros mais confiantes são todos falsos positivos, com P(Fight) entre 90% e 97%: o modelo está **confiantemente** errado, o que é falha de representação e não de limiar.
 
-```bash
-python reports/error_analysis.py
-```
+**Os erros se concentram em poucas câmeras.** Dos 90 grupos do teste, **71 (79%) não erram nada**; sete grupos concentram 22 dos 34 erros. Excluindo os três piores — 23 clipes de 185 — a acurácia sobe de 81,62% para **86,42%**. Cinco desses sete têm clipes das **duas classes na mesma câmera**: mesmo fundo, mesma luz, só o movimento muda. É o caso mais difícil possível, e é o que o split por grupo força de propósito.
 
-**1. Os erros ficam perto da fronteira de decisão.** A margem mediana até o limiar é de 17,3 p.p. nos erros contra 39,8 p.p. nos acertos — o modelo erra onde está em dúvida, e não onde está confiante. Mas o comportamento difere por tipo:
+**Nenhum limiar resolve.** A varredura mostra 0,50 já no ótimo de acurácia; mover só troca um tipo de erro pelo outro. Reduzir FN de 13 para 7 custa 7 FP a mais — decisão de política. Eliminar os FP confiantes exige mais dados dos cenários que os produzem.
 
-| | Quantidade | Margem mediana | Leitura |
-| :--- | :---: | :---: | :--- |
-| Falsos negativos | 13 | 10,1 p.p. | perto da fronteira — agressões sutis, recuperáveis por calibração |
-| Falsos positivos | 21 | 30,2 p.p. | longe da fronteira — o modelo está **confiantemente** errado |
-
-Os cinco erros mais confiantes são todos falsos positivos, com P(Fight) entre 90% e 97%. São cenas normais que o modelo lê como agressão com alta convicção — falha de representação, não de calibração.
-
-**2. Os erros se concentram em poucas câmeras.** Dos 90 grupos do teste, **71 (79%) não produzem nenhum erro**. Sete grupos com dois ou mais erros concentram 22 dos 34 — **65% dos erros em 8% das câmeras**.
-
-| Grupo | Erros | Clipes | Classes na câmera |
-| :--- | :---: | :---: | :--- |
-| `I-QiUMPTWNE` | 6 | 12 | Fight + NonFight |
-| `1MVS2QPWbHc` | 3 | 8 | Fight + NonFight |
-| `2lrARl7utL4` | 3 | 3 | NonFight |
-| `YDOJvzChqSg` | 3 | 6 | Fight + NonFight |
-| `etyiEs3j8x8` | 3 | 10 | Fight + NonFight |
-
-Excluindo os três piores grupos — 23 clipes de 185 — a acurácia sobe de 81,62% para **86,42%**. O gargalo não é capacidade média do modelo; são poucos cenários específicos.
-
-Cinco dos sete grupos problemáticos têm clipes das **duas classes na mesma câmera**. É o caso mais difícil possível: mesmo fundo, mesma iluminação, mesmo enquadramento, e a única diferença é o movimento. O modelo não tem onde se apoiar além da dinâmica — exatamente o cenário que o particionamento por grupo foi desenhado para forçar.
-
-**3. Nenhum limiar resolve.** A varredura mostra que 0,50 já é o ótimo de acurácia, e que mover o limiar apenas troca um tipo de erro pelo outro:
-
-| θ | Acurácia | FN | FP |
-| :---: | :---: | :---: | :---: |
-| 0.35 | 78.92% | 5 | 34 |
-| 0.40 | 81.08% | 7 | 28 |
-| 0.45 | 81.62% | 9 | 25 |
-| **0.50** | **81.62%** | **13** | **21** |
-| 0.55 | 79.46% | 18 | 20 |
-| 0.65 | 81.08% | 21 | 14 |
-
-Isso delimita onde está o ganho disponível. Reduzir falsos negativos de 13 para 7 custa sete falsos positivos a mais e é uma decisão de política, não de modelagem. Já eliminar os falsos positivos confiantes exige mais dados dos cenários que os produzem, ou uma representação que capture o que distingue movimento intenso de agressão — nenhum ajuste de limiar chega lá.
-
-Resultado completo em [`reports/error_analysis.json`](reports/error_analysis.json).
-
-### Dashboard consolidado
-
-![Jornada evolutiva](reports/jornada_evolutiva_3_modelos.png)
-
-```bash
-python reports/generate_evolution_charts.py
-```
+Detalhes em [`reports/error_analysis.json`](reports/error_analysis.json).
 
 ---
 
-## 7. Validação externa: generalização para outro dataset
+## 6. Validação externa: outro dataset
 
-Todas as métricas até aqui vêm do RWF-2000. Um teste mais duro é aplicar o modelo, **sem retreinar**, a um dataset independente — nenhum vídeo do SCVD participou do treino, da validação ou da seleção de modelo.
+Aplicar o modelo pronto, **sem retreinar**, a um dataset independente. Nenhum vídeo do SCVD participou do treino, da validação ou da seleção.
 
-**Dataset:** SCVD — *Smart-City CCTV Violence Detection*, 481 vídeos de CFTV urbano em 720p, com 3 classes: `Normal` (246), `Violence` (111) e `Weaponized` (124).
+**SCVD** — *Smart-City CCTV Violence Detection*, 481 vídeos de CFTV urbano em 720p: `Normal` (246), `Violence` (111), `Weaponized` (124).
 Fonte: <https://www.kaggle.com/datasets/toluwaniaremu/smartcity-cctv-violence-detection-dataset-scvd>
 
-Como o classificador é binário, as classes foram mapeadas em duas versões, para separar violência corporal de violência armada:
-
-* **Versão A — com armada:** `Normal` vs (`Violence` + `Weaponized`)
-* **Versão B — sem armada:** `Normal` vs `Violence`
-
-```bash
-python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
-```
-
-### O resultado, e o que ele realmente diz
+Como o classificador é binário, duas versões separam violência corporal de armada:
 
 | Conjunto | Acurácia | Recall | Precisão | F1 | AUC-ROC |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | RWF-2000 (in-domain) | 81.62% | 85.23% | 78.12% | 81.52% | 89.60% |
-| SCVD versão A | 71.10% | 88.09% | 65.09% | 74.86% | 83.98% |
-| SCVD versão B | 66.39% | 91.89% | 47.89% | 62.96% | **87.70%** |
+| SCVD **A** — `Normal` vs `Violence`+`Weaponized` | 71.10% | 88.09% | 65.09% | 74.86% | 83.98% |
+| SCVD **B** — `Normal` vs `Violence` | 66.39% | 91.89% | 47.89% | 62.96% | **87.70%** |
 
-A acurácia cai, mas o **recall sobe** e a precisão desaba. Isso não é perda de capacidade — o AUC-ROC, que independe do limiar, cai apenas 1,9 ponto na versão B. O modelo continua ordenando os vídeos quase tão bem quanto no domínio de origem.
-
-### O mecanismo: a classe positiva transfere, a negativa desloca
-
-| Conjunto | Mediana de P(Fight) |
-| :--- | :---: |
-| RWF-2000 Fight | 0.879 |
-| **SCVD Violence** | **0.880** |
-| SCVD Weaponized | 0.836 |
-| RWF-2000 NonFight | **0.168** |
-| **SCVD Normal** | **0.461** |
+A acurácia cai, mas o **recall sobe** e a precisão desaba — e o AUC, que independe do limiar, perde só 1,9 ponto na versão B. Não é perda de capacidade, é perda de calibração.
 
 ![Validação externa no SCVD](reports/cross_dataset_scvd.png)
 
-A classe positiva é praticamente idêntica entre os dois datasets. A negativa é que se desloca: a mediana do "normal" sai de 0,17 para 0,46, encostando no limiar.
+**O mecanismo.** A mediana de P(Fight) da classe positiva é praticamente idêntica entre os datasets (0.880 no SCVD contra 0.879 no RWF-2000). Quem desloca é a negativa: de **0.168 para 0.461**, encostando no limiar. O SCVD é rua urbana com tráfego constante, enquanto o `NonFight` do RWF-2000 é gente caminhando — o modelo aprendeu a usar **intensidade de movimento** como sinal de agressão, e isso confunde quando o domínio muda.
 
-A explicação é o próprio viés indutivo do modelo. O SCVD é CFTV urbano com trânsito e circulação constante, enquanto o `NonFight` do RWF-2000 é majoritariamente gente caminhando. O modelo aprendeu a usar **intensidade de movimento** como sinal de violência — o que funciona dentro do RWF-2000, mas confunde cena movimentada com agressão quando o domínio muda.
+**É calibração, não representação.** Recalibrando apenas o limiar, sem tocar nos pesos: versão A vai a **76.51%** (θ = 0.68) e versão B a **84.59%** (θ = 0.82, ganho de 18,21 p.p.). Em produção, implantar num local novo exige algumas dezenas de clipes daquele local para reposicionar o limiar — não exige retreinar.
 
-### É problema de calibração, não de representação
+> A versão B é desbalanceada (111 contra 246), então prever sempre `NonFight` já daria 68,91%. Compare por F1 e AUC.
 
-Recalibrando apenas o limiar no domínio novo, sem tocar nos pesos:
+**Violência armada.** O modelo generaliza: detecta **84.68%** dos casos com arma contra 91.89% da violência corporal — queda de 7 pontos, coerente com uma arquitetura baseada em velocidade e aceleração, já que ameaça armada envolve menos movimento corporal. Alarme falso em `Normal`: 45.12%.
 
-| Versão | θ = 0.50 (calibrado no RWF-2000) | θ recalibrado | Ganho |
-| :--- | :---: | :---: | :---: |
-| A — com armada | 71.10% | **76.51%** (θ = 0.68) | +5.41 p.p. |
-| B — sem armada | 66.39% | **84.59%** (θ = 0.82) | +18.21 p.p. |
+**A comparação entre arquiteturas se replica.** AUC na versão A: baseline 76.13%, dual-stream 81.45%, ensemble **83.98%** — mesma ordem do RWF-2000. O ganho do viés cinético não era artefato do dataset de treino.
 
-> A versão B é desbalanceada (111 `Fight` contra 246 `Normal`), então prever sempre `NonFight` já daria 68,91%. Compare por F1 e AUC, não por acurácia bruta.
-
-Em produção isso significa que implantar em um novo local exige um conjunto de calibração daquele local — algumas dezenas de clipes rotulados bastam para reposicionar o limiar. Não exige retreinar.
-
-### Violência armada
-
-| Classe do SCVD | Detectada como `Fight` |
-| :--- | :---: |
-| `Violence` (sem arma) | 91.89% |
-| `Weaponized` (com arma) | **84.68%** |
-| `Normal` (alarme falso) | 45.12% |
-
-O modelo **generaliza para violência armada**, com queda de apenas 7 pontos. É coerente com a arquitetura: agressão armada envolve menos movimento corporal bruto — apontar uma arma, ameaçar — e as três cabeças operam sobre velocidade e aceleração.
-
-Note o efeito oposto nas duas métricas: incluir `Weaponized` **aumenta** a acurácia (71,10% contra 66,39%) porque equilibra as classes, mas **reduz** o AUC (83,98% contra 87,70%) porque essa classe é intrinsecamente mais difícil de separar.
-
-### A comparação entre arquiteturas se replica
-
-| Modelo | AUC versão A | AUC versão B |
-| :--- | :---: | :---: |
-| Modelo 1: Baseline | 76.13% | 78.20% |
-| Modelo 2: Dual-Stream | 81.45% | 87.13% |
-| **Modelo 3: Ensemble** | **83.98%** | **87.70%** |
-
-Mesma ordenação obtida no RWF-2000 (85.63% → 89.26% → 89.60%). O ganho do viés indutivo cinético não era artefato do dataset de treino: ele sobrevive à troca completa de domínio.
-
-Resultado completo em [`reports/cross_dataset_scvd.json`](reports/cross_dataset_scvd.json). Os vídeos do SCVD não são redistribuídos neste repositório; apenas dois clipes são incluídos como demonstração de inferência, com atribuição.
+Resultado completo em [`reports/cross_dataset_scvd.json`](reports/cross_dataset_scvd.json). Os 481 vídeos não são redistribuídos aqui.
 
 ---
 
-## 8. Perfil de Edge AI
+## 7. Edge AI: latência e ONNX
 
-Medido por [`benchmarks/benchmark_detailed_latency.py`](benchmarks/benchmark_detailed_latency.py), que roda os três modelos **no mesmo laço, na mesma execução**, e registra o hardware junto com os números.
+Medido em Intel64 Family 6 Model 151 (12 threads lógicos, PyTorch usando 6), Windows 11, PyTorch 2.14.0+cpu. 60 repetições, **medianas**, com os três modelos cronometrados **intercalados** no mesmo laço — medir em blocos separados deixa uma contenção transitória penalizar um modelo sozinho.
 
-Hardware da medição: Intel64 Family 6 Model 151 (12 threads lógicos, PyTorch usando 6), Windows 11, PyTorch 2.14.0+cpu. 60 repetições, 5 de aquecimento, valores em mediana.
+| Modelo | Cabeça | Forward | p95 | + decodificação | Clipes/s |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Modelo 1: Baseline | 0.92 ms | 40.94 ms | 52.83 ms | 84.07 ms | 11.9 |
+| Modelo 2: Dual-Stream | 1.85 ms | 41.25 ms | 49.50 ms | 84.38 ms | 11.9 |
+| Modelo 3: Ensemble | 7.05 ms | 47.77 ms | 59.33 ms | 90.90 ms | 11.0 |
 
-| Modelo | Parâmetros | Cabeça | Forward (backbone + cabeça) | p95 | + decodificação | Clipes/s |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Modelo 1: Baseline | 1.17M | 0.92 ms | 40.94 ms | 52.83 ms | 84.07 ms | 11.9 |
-| Modelo 2: Dual-Stream | 1.44M | 1.85 ms | 41.25 ms | 49.50 ms | 84.38 ms | 11.9 |
-| Modelo 3: Ensemble | 2.86M | 7.05 ms | 47.77 ms | 59.33 ms | 90.90 ms | 11.0 |
+Duas leituras que a separação entre decodificação e forward torna visíveis:
 
-Duas observações que a separação entre decodificação e forward torna visíveis:
+* **A decodificação custa 43.13 ms — mais que o backbone inteiro (38.26 ms).** O gargalo do pipeline é o I/O, não a rede.
+* **O ensemble custa 6,8 ms a mais que o baseline**, porque as três cabeças compartilham a mesma passada do backbone.
 
-* **A decodificação do vídeo custa 43.13 ms — mais que o backbone inteiro (38.26 ms).** O gargalo do pipeline não é a rede; é ler o arquivo. Otimizar o modelo sem tocar no I/O tem retorno limitado.
-* **O ensemble custa 6,8 ms a mais que o baseline**, porque as três cabeças compartilham a mesma passada do backbone — 7,05 ms de cabeças contra 0,92 ms. É isso que torna um comitê viável na borda.
+### ONNX verificado
 
-Duas decisões do próprio benchmark, que afetam a validade da comparação:
+A exportação carrega os pesos treinados, e a paridade numérica é conferida — um grafo ONNX pode carregar sem erro e ainda produzir valores errados.
 
-* **Mediana, não média.** Em CPU compartilhada, uma única pausa do escalonador desloca a média em dezenas de porcento. O desvio e o p95 continuam reportados para tornar a dispersão visível.
-* **Medições intercaladas.** Os três modelos são cronometrados round-robin dentro do mesmo laço, e não em blocos separados. Medidos em blocos, uma contenção transitória penaliza um modelo sozinho — chegou a produzir aqui o resultado impossível de o baseline aparecer mais rápido que o ensemble, que roda o mesmo backbone mais duas cabeças.
-
-Regenere na máquina alvo antes de citar qualquer valor absoluto:
-
-```bash
-python benchmarks/benchmark_detailed_latency.py --runs 60
-```
-
-### ONNX: exportação verificada
-
-A exportação carrega os **pesos treinados** antes de gerar o grafo, e a paridade numérica contra o PyTorch é verificada explicitamente — um grafo ONNX pode carregar sem erro e ainda assim produzir valores errados.
-
-```bash
-python src/inference.py --export_onnx --onnx_model ensemble --no_infer
-python benchmarks/verify_onnx_parity.py --model ensemble
-```
-
-| Modelo | Diferença máxima ONNX × PyTorch | PyTorch CPU | ONNX Runtime CPU | Ganho |
+| Modelo | Diferença ONNX × PyTorch | PyTorch | ONNX Runtime | Ganho |
 | :--- | :---: | :---: | :---: | :---: |
 | Baseline | 1.2e-06 | 39.30 ms | **14.22 ms** | 2.76× |
 | Dual-Stream | 9.5e-07 | 42.81 ms | **15.54 ms** | 2.75× |
 | Ensemble | 1.8e-07 | 44.32 ms | **14.83 ms** | 2.99× |
 
-Com ONNX Runtime o forward do ensemble cai para 14.83 ms, e o custo por clipe passa a ser dominado pela decodificação — que sozinha custa três vezes mais que a inferência. Resultados em [`reports/onnx_parity_baseline.json`](reports/onnx_parity_baseline.json), [`reports/onnx_parity_dualstream.json`](reports/onnx_parity_dualstream.json) e [`reports/onnx_parity_ensemble.json`](reports/onnx_parity_ensemble.json).
-
----
-
-## 9. Engenharia de limiares
-
-O limiar de operação é uma decisão de produto, separada da seleção de modelo. [`src/calibrate_threshold.py`](src/calibrate_threshold.py) o escolhe sobre os 215 vídeos de validação e só então avalia o teste, uma vez:
-
 ```bash
-python src/calibrate_threshold.py --model ensemble \
-    --criterion recall_at_precision --min_precision 0.80 --eval_test
+python benchmarks/benchmark_detailed_latency.py --runs 60
+python src/inference.py --export_onnx --onnx_model ensemble --no_infer
+python benchmarks/verify_onnx_parity.py --model ensemble
 ```
 
-Critérios disponíveis: `f1`, `recall_at_precision` (maximiza recall sujeito a uma precisão mínima) e `youden`. A varredura completa fica registrada em `reports/threshold_calibration_<modelo>.json`, permitindo escolher o ponto de operação por política de cliente — mais sensível em perímetro crítico, mais conservador onde há contato físico legítimo.
-
-Calibrando o ensemble por F1 sobre a validação, o limiar ótimo cai em θ = 0,50 — o mesmo valor usado por padrão ([`reports/threshold_calibration_ensemble.json`](reports/threshold_calibration_ensemble.json)). Na validação esse ponto rende 86,61% de recall e 78,23% de precisão.
+Com ONNX Runtime o forward do ensemble cai para 14.83 ms e a decodificação passa a custar três vezes mais que a inferência.
 
 ---
 
-## 10. Reprodução
+## 8. Ponto de operação
 
-### Instalação
+O limiar é decisão de produto, separada da seleção de modelo. [`src/calibrate_threshold.py`](src/calibrate_threshold.py) o escolhe sobre a validação e só então avalia o teste:
+
+```bash
+python src/calibrate_threshold.py --model ensemble --criterion recall_at_precision --min_precision 0.80 --eval_test
+```
+
+Critérios disponíveis: `f1`, `recall_at_precision` e `youden`. Calibrando por F1 na validação, o ótimo cai em θ = 0,50 — o mesmo valor padrão ([`threshold_calibration_ensemble.json`](reports/threshold_calibration_ensemble.json)), rendendo 86,61% de recall e 78,23% de precisão na validação.
+
+---
+
+## 9. Instalação e reprodução
 
 ```bash
 git clone https://github.com/heittorvcs/surveillance-video-classifier.git
@@ -455,103 +247,46 @@ cd surveillance-video-classifier
 pip install -r requirements.txt
 ```
 
-### Inferência sobre um vídeo (não precisa do dataset)
+**Inferência** (não precisa do dataset):
 
 ```bash
 python src/inference.py --video sample_video.avi --label Fight
+# --model [ensemble|dualstream|baseline]  --threshold 0.50  --weights <caminho>
 ```
 
-Opções: `--model [ensemble|dualstream|baseline]`, `--threshold 0.50`, `--weights <caminho>`.
-
-### Pipeline completo (precisa do RWF-2000 em `archive/RWF-2000/`)
+**Pipeline completo** (precisa do RWF-2000 em `archive/RWF-2000/{train,val}/{Fight,NonFight}/`):
 
 ```bash
-# 1. Partições anti-leakage (verifica e falha se houver vazamento)
-python src/create_splits.py
+python src/create_splits.py          # particoes anti-leakage, falha se houver vazamento
+python src/build_cache.py            # features do backbone congelado, pre-requisito do resto
 
-# 2. Cache de features do backbone congelado — pré-requisito de tudo abaixo
-python src/build_cache.py
-
-# 3. Treinamento
+# treino: --arch [baseline|dualstream|tristream|dualmeanmax]
 python src/train.py --arch tristream --seed 7 --out models/pool/tristream_s7.pth
 
-# 4. Seleção na validação e avaliação única no teste (ver seção 5)
-python src/select_ensemble.py --criterion f1 --fixed_threshold 0.50 --export --eval_test
+# selecao na validacao + avaliacao unica no teste (ver secao 4)
+python src/select_single.py   --arch baseline --criterion f1 --fixed_threshold 0.50 --export --eval_test
+python src/select_ensemble.py                 --criterion f1 --fixed_threshold 0.50 --export --eval_test
 
-# 5. Avaliação avulsa
-python src/evaluate.py --model ensemble
-python src/evaluate.py --model ensemble --split val
-
-# 6. Benchmarks e verificações
-python benchmarks/benchmark_detailed_latency.py      # latência em CPU
-python benchmarks/verify_onnx_parity.py --model ensemble
-
-# 7. Validacao externa (exige o SCVD baixado a parte)
-python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
-
-# 8. Analise dos erros e figuras
+python src/evaluate.py --model ensemble --split test
 python reports/error_analysis.py
 python reports/generate_evolution_charts.py
-python reports/generate_mosaic_preview.py --label Fight
-
-# 9. Testes
 python tests/test_splits.py
-```
 
-### Estrutura
-
-```
-src/
-  create_splits.py         particoes anti-leakage + verificacao
-  build_cache.py           extracao e cache das features (pre-requisito)
-  dataset.py               amostragem de quadros, normalizacao, flip deterministico
-  model.py                 todas as arquiteturas + factory de carregamento
-  train.py                 treino de qualquer cabeca, com augmentation e checkpoints
-  evaluate.py              metricas e matriz de confusao por split
-  calibrate_threshold.py   escolha do ponto de operacao na validacao
-  select_single.py         escolha da semente dos Modelos 1 e 2 na validacao
-  select_ensemble.py       escolha do trio do Modelo 3 na validacao
-benchmarks/
-  benchmark_detailed_latency.py    latencia dos 3 modelos sob protocolo unico
-  verify_onnx_parity.py            paridade ONNX x PyTorch + ONNX Runtime
-  eval_cross_dataset.py            validacao externa no SCVD, sem retreinar
-reports/
-  error_analysis.py                onde e por que o modelo erra no teste
-  generate_evolution_charts.py     matrizes de confusao, ROC e dashboard
-  generate_mosaic_preview.py       mosaico de predicao sobre um video
-  selected/                        curvas e historico dos modelos selecionados
-  pool/                            curvas por semente do pool (nao versionado)
-tests/                     testes das particoes anti-leakage
-models/                    checkpoints e grafos ONNX
-data/splits/               CSVs das particoes (versionados)
+# validacao externa (exige o SCVD baixado a parte)
+python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
 ```
 
 ---
 
-## 11. Limitações e trabalhos futuros
+## 10. Limitações e próximos passos
 
-**Metodológicas**
+* **Movimento como proxy de agressão.** A validação externa expôs a causa raiz: a classe negativa desloca quando o cenário tem mais circulação. É a mesma origem dos falsos positivos confiantes da análise de erros.
+* **A calibração não transfere entre domínios.** O AUC sobrevive à troca de dataset, mas o limiar ótimo vai de 0,50 para 0,82. Implantar num local novo exige um conjunto de calibração local.
+* **Data augmentation não medido.** O mecanismo está implementado e correto, mas os resultados foram treinados sem o cache espelhado.
+* **Seleção sobre 215 vídeos.** Escolher entre 3.800 trios num conjunto desse tamanho ainda superajusta a validação — daí o limiar fixo. Um `GroupKFold` sobre treino + validação daria estimativa mais estável.
+* **Domínio.** RWF-2000 concentra cenas diurnas e câmeras estáticas; PTZ e infravermelho exigem dados complementares, e contextos esportivos tendem a gerar falsos positivos. O modelo consome clipes de 5 s — operação contínua exigiria janela deslizante com voto temporal.
 
-* **Data augmentation não medido.** O mecanismo está implementado e correto, mas os resultados publicados foram treinados sem o cache espelhado, por indisponibilidade do dataset bruto no retreinamento. O ganho é uma hipótese, não um resultado.
-* **Seleção sobre 215 vídeos de validação.** Escolher entre 3.800 trios num conjunto desse tamanho ainda superajusta a validação — é por isso que o limiar fica fixo durante a seleção. Um `GroupKFold` sobre treino+validação daria uma estimativa mais estável do que um split único.
-* **Calibração não transfere entre domínios.** A [seção 7](#7-validação-externa-generalização-para-outro-dataset) mostra que o AUC sobrevive à troca de dataset, mas o limiar não: no SCVD, o ponto de operação ótimo é θ = 0,82 em vez de 0,50. Implantar em um local novo exige um conjunto de calibração daquele local.
-* **Movimento como proxy de agressão.** O deslocamento da classe negativa no SCVD indica que o modelo usa intensidade de movimento como sinal. Cenários com circulação intensa geram alarme falso, e é a causa raiz dos falsos positivos confiantes vistos na análise de erros.
-* **Classes balanceadas.** O RWF-2000 é 1.000/1.000 por construção e o treino é 800/800; não há desbalanceamento a tratar. O `fight_weight = 1.35` não é correção estatística, e sim ponderação de **custo assimétrico** entre FN e FP, codificando na loss uma decisão de negócio.
-
-**De domínio**
-
-* **Iluminação extrema.** O RWF-2000 concentra cenas diurnas e iluminação pública regular. Escuridão severa ou infravermelho exigem dados complementares para adaptação de domínio.
-* **Câmeras em movimento (PTZ).** O pipeline assume câmeras estáticas. Movimentos de pan/tilt/zoom geram fluxo no fundo e exigiriam compensação de movimento global.
-* **Alta interação física legítima.** Contextos esportivos ou brincadeiras com contato contínuo tendem a gerar falsos positivos; recomenda-se limiar mais conservador.
-* **Entrada em clipes, não em stream.** O modelo consome clipes de 5 segundos. Operação contínua exigiria janela deslizante com voto temporal.
-
-**Próximos passos, em ordem de prioridade**
-
-1. Medir o ganho real do data augmentation, com o cache espelhado gerado a partir do dataset bruto.
-2. Substituir o split único de validação por `GroupKFold`, reduzindo o superajuste da etapa de seleção.
-3. Quantização INT8 e avaliação em dispositivo de borda (Jetson Nano, Raspberry Pi 5), partindo dos grafos ONNX já verificados.
-4. Otimizar a decodificação de vídeo, que hoje é o gargalo do pipeline.
-5. Treinar com dados de múltiplos domínios, para que o modelo separe movimento de agressão em vez de usar um como proxy do outro.
+**Em ordem de prioridade:** treinar com múltiplos domínios para separar movimento de agressão; medir o ganho do augmentation; trocar o split único por `GroupKFold`; quantização INT8 partindo dos grafos ONNX já verificados; otimizar a decodificação, que é o gargalo real de latência.
 
 ---
 
