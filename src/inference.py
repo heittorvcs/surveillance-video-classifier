@@ -62,6 +62,10 @@ def export_onnx(model_name, device, output_path=None):
     # O ensemble devolve probabilidades (media dos softmax); os demais devolvem logits.
     output_name = "probs" if model_name == "ensemble" else "logits"
 
+    # Exportador legado (dynamo=False): produz um grafo unico, sem arquivo .onnx.data
+    # ao lado, e aceita `dynamic_axes` diretamente. O exportador dynamo do torch 2.x
+    # grava o arquivo e so entao falha ao converter para opset 14, deixando um
+    # artefato valido mas um erro na saida -- comportamento confuso para quem executa.
     torch.onnx.export(
         model,
         dummy_input,
@@ -70,6 +74,7 @@ def export_onnx(model_name, device, output_path=None):
         output_names=[output_name],
         dynamic_axes={"input_video": {0: "batch_size"}, output_name: {0: "batch_size"}},
         opset_version=14,
+        dynamo=False,
     )
     print(f"[ONNX] {desc} exportado para '{output_path}'")
     print(f"[ONNX] Verifique a paridade numerica com: python benchmarks/verify_onnx_parity.py "

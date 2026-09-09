@@ -1,0 +1,10 @@
+{
+  "model": "ensemble",
+  "onnx_path": "models/model_ensemble.onnx",
+  "max_abs_diff": 1.7881393432617188e-07,
+  "tolerance": 0.0001,
+  "parity_ok": true,
+  "torch_ms": 44.86396333377343,
+  "onnx_ms": 16.876349999559654,
+  "speedup": 2.65839256325829
+}

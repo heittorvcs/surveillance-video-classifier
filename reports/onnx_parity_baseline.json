@@ -1,0 +1,10 @@
+{
+  "model": "baseline",
+  "onnx_path": "models/model.onnx",
+  "max_abs_diff": 1.1920928955078125e-06,
+  "tolerance": 0.0001,
+  "parity_ok": true,
+  "torch_ms": 37.54771666669209,
+  "onnx_ms": 14.68975666599969,
+  "speedup": 2.5560475588815232
+}

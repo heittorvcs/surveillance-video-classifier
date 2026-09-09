@@ -1,0 +1,10 @@
+{
+  "model": "dualstream",
+  "onnx_path": "models/model_dualstream.onnx",
+  "max_abs_diff": 9.5367431640625e-07,
+  "tolerance": 0.0001,
+  "parity_ok": true,
+  "torch_ms": 41.01972999948581,
+  "onnx_ms": 14.55418333328756,
+  "speedup": 2.8184150948317144
+}

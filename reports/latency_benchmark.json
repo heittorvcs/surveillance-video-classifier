@@ -1,0 +1,50 @@
+{
+  "hardware": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel",
+    "python": "3.11.9",
+    "torch": "2.14.0+cpu",
+    "torch_threads": 6,
+    "cpu_count": 12
+  },
+  "runs": 30,
+  "decode_ms": 43.87116000046566,
+  "decode_p95_ms": 46.81597000089823,
+  "backbone_ms": 34.14218333321818,
+  "backbone_p95_ms": 37.00801000086358,
+  "models": [
+    {
+      "model": "Modelo 1: Baseline",
+      "params_total": 1173794,
+      "params_head": 246786,
+      "head_ms": 0.7956666673029152,
+      "head_std": 0.19363557765447925,
+      "forward_ms": 35.75503333316495,
+      "forward_std": 3.0120654739695807,
+      "forward_p95": 41.13470500051335,
+      "with_decode_ms": 79.62619333363061
+    },
+    {
+      "model": "Modelo 2: Dual-Stream",
+      "params_total": 1436642,
+      "params_head": 509634,
+      "head_ms": 1.5434466663767428,
+      "head_std": 0.25755834031373454,
+      "forward_ms": 36.31909999943067,
+      "forward_std": 2.305182971606174,
+      "forward_p95": 40.128830000321614,
+      "with_decode_ms": 80.19025999989633
+    },
+    {
+      "model": "Modelo 3: Ensemble",
+      "params_total": 2858662,
+      "params_head": 1931654,
+      "head_ms": 5.991490000451449,
+      "head_std": 0.7251373827786797,
+      "forward_ms": 40.71115666689972,
+      "forward_std": 1.59934195688147,
+      "forward_p95": 43.30676000281528,
+      "with_decode_ms": 84.58231666736538
+    }
+  ]
+}
