@@ -1,12 +1,12 @@
 # Roteiro do Vídeo de Apresentação
 
-**Candidato:** Heittor Costa · **Destinatário:** NeuIA · **Duração alvo:** 9min39s (janela do edital: 5–10)
+**Candidato:** Heittor Costa · **Destinatário:** NeuIA · **Duração alvo:** 9min44s (janela do edital: 5–10)
 
 **Princípio:** todo número dito em voz alta existe num arquivo do repositório, e nenhuma decisão de modelagem foi tomada com o conjunto de teste.
 
-> **Ritmo:** 1.212 palavras faladas. A 140 palavras/min, somando o tempo dos comandos rodando, dá **9min39s** — os tempos de cada bloco saem dessa conta.
+> **Ritmo:** 1223 palavras faladas. A 140 palavras/min, somando os comandos rodando, dá **9min44s**.
 >
-> A margem para o limite de 10 min é de 21 segundos, o que é pouco. **Cronometre um ensaio.** Se passar de 9min45s, corte os três trechos marcados com `[CORTÁVEL]`: somam 30 s e levam a apresentação para ~9min10s.
+> **Cronometre um ensaio.** Se passar de 9min30s, corte os trechos marcados com `[CORTÁVEL]`: somam 36 s e levam a apresentação para ~9min07s.
 
 ---
 
@@ -54,19 +54,19 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 ---
 
-## 1:39 – 2:34 · Pré-processamento
+## 1:39 – 2:44 · Pré-processamento
 
 **Tela:** `src/dataset.py`.
 
 > "De cada clipe amostro 16 quadros equidistantes cobrindo os 5 segundos — corta 89% do volume sem perder a trajetória do movimento. A decodificação usa `grab` para pular quadro sem decodificar. Depois: 224 por 224 e normalização ImageNet, as estatísticas do pré-treino do backbone.
 >
-> E um detalhe de augmentation, porque foi uma armadilha que eu mesmo criei. Como o backbone é congelado, eu cacheio as features. Se aplicasse o flip nessa extração única, cada vídeo teria uma perturbação **fixa**, igual em todas as épocas — não é augmentation, é ruído congelado. A correção é ter dois caches, original e espelhado, e sortear a cada época.
+> Sobre augmentation, uma armadilha do backbone congelado: como eu cacheio as features, aplicar o flip nessa extração única daria uma perturbação **fixa** por vídeo, igual em todas as épocas — ruído congelado, não augmentation. A correção é ter dois caches e sortear a cada época.
 >
-> `[CORTÁVEL]` Sendo transparente: os números aqui foram treinados sem o cache espelhado. O mecanismo está implementado; o ganho não foi medido."
+> E aí eu medi: 240 treinamentos, com e sem. **O efeito é nulo** — 0,3 ponto de AUC contra 0,8 de desvio entre sementes, ou seja, dentro do ruído. `[CORTÁVEL]` E dá para explicar: o MobileNet foi pré-treinado no ImageNet, que já usa flip, então as features já são quase invariantes — 0,98 de similaridade entre o vídeo e seu espelho, contra 0,59 entre vídeos diferentes."
 
 ---
 
-## 2:34 – 3:47 · As três arquiteturas
+## 2:44 – 3:56 · As três arquiteturas
 
 **Tela:** `src/model.py`.
 
@@ -80,7 +80,7 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 ---
 
-## 3:47 – 5:00 · Estratégia de treinamento
+## 3:56 – 5:09 · Estratégia de treinamento
 
 **Tela:** seção 4 do README, tabela das distribuições na validação.
 
@@ -96,7 +96,7 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 ---
 
-## 5:00 – 6:09 · Métricas e onde o modelo erra
+## 5:09 – 6:19 · Métricas e onde o modelo erra
 
 **Tela:** tabela de resultados e matrizes de confusão. Rodar `python src/evaluate.py --model ensemble`.
 
@@ -108,7 +108,7 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 ---
 
-## 6:09 – 7:39 · Validação externa
+## 6:19 – 7:45 · Validação externa
 
 **Tela:** `reports/cross_dataset_scvd.png` em tela cheia.
 
@@ -120,17 +120,17 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 >
 > E dá para provar: recalibrando só o limiar, a acurácia vai a **84,6%**. Implantar num local novo precisa de calibração local, não de retreino.
 >
-> E dois achados a mais: o modelo **generaliza para violência armada**, com 84,7% de detecção contra 91,9% da corporal; `[CORTÁVEL]` e a ordenação das três arquiteturas **se repete** aqui, então o ganho do viés cinético não era artefato do dataset de treino."
+> E o modelo **generaliza para violência armada**: 84,7% contra 91,9% da corporal. `[CORTÁVEL]` A ordenação das três arquiteturas também **se repete** aqui, então o ganho do viés cinético não era artefato do dataset de treino."
 
 ---
 
-## 7:39 – 9:05 · Edge AI e demonstração
+## 7:45 – 9:10 · Edge AI e demonstração
 
 **Tela:** tabela da seção 7; depois rodar a inferência nos dois clipes do SCVD.
 
 > "`[CORTÁVEL]` Medi os três modelos intercalados no mesmo laço e por mediana, porque em CPU compartilhada medir em blocos separados chega a inverter a ordem.
 >
-> A decodificação custa 43 milissegundos, **mais que o backbone inteiro**: o gargalo é o I/O, não a rede. E o ensemble custa só 6,8 milissegundos a mais que o baseline, porque as cabeças compartilham a mesma passada. Com ONNX Runtime — exportado com paridade numérica verificada — o forward cai de 44 para 15 milissegundos."
+> A decodificação custa 43 milissegundos, **mais que o backbone inteiro**: o gargalo é o I/O, não a rede. O ensemble custa só 6,8 milissegundos a mais que o baseline, porque as cabeças compartilham a passada. E com ONNX Runtime, exportado com paridade verificada, o forward cai de 44 para 15 milissegundos."
 
 *(Rodar a inferência nos dois clipes do SCVD.)*
 
@@ -138,13 +138,13 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 ---
 
-## 9:05 – 9:39 · Fechamento
+## 9:10 – 9:44 · Fechamento
 
 > "Resumindo: split por grupo de câmera para o número de teste significar algo; backbone congelado por orçamento de borda; derivadas cinéticas em vez de optical flow; e seleção feita na validação.
 >
-> As limitações que reconheço: o modelo usa intensidade de movimento como proxy de agressão — foi a validação externa que expôs isso; e o augmentation está implementado mas não medido.
+> A limitação principal que reconheço: o modelo usa intensidade de movimento como proxy de agressão — foi a validação externa que expôs isso.
 >
-> Próximos passos: treinar com múltiplos domínios, medir o augmentation, quantizar INT8, e atacar a decodificação. Obrigado."
+> Próximos passos: treinar com múltiplos domínios, um augmentation que o backbone congelado não anule, quantizar INT8, e atacar a decodificação. Obrigado."
 
 ---
 
@@ -155,6 +155,9 @@ cd "C:\Users\heitt\OneDrive\Documentos\Entrevista tecnica NeuIA\surveillance-vid
 
 **"O modelo funciona fora do dataset de treino?"**
 > "Testei em 481 vídeos do SCVD sem retreinar. A capacidade transfere, a calibração não: o AUC cai 1,9 ponto, mas o limiar ótimo vai de 0,50 para 0,82, porque o normal daquele dataset tem muito mais movimento. Recalibrando só o limiar, a acurácia vai de 66 para 84,6%."
+
+**"O data augmentation ajudou?"**
+> "Não, e eu medi: 240 treinamentos, 20 sementes por arquitetura, com e sem flip. O efeito ficou entre 0,1 e 0,3 ponto de AUC, todos dentro de 1,2 erro-padrão de zero e com sinal inconsistente entre arquiteturas — três negativos e um positivo, que é assinatura de ruído. A causa é estrutural: o MobileNet foi pré-treinado no ImageNet, que já usa flip, então as features já são quase invariantes, com 0,98 de similaridade entre o vídeo e seu espelho. Augmentation geométrico não agrega sobre um backbone congelado que já viu aquela transformação."
 
 **"Por que não um Video Transformer?"**
 > "Restrição de dados e de borda: 2.000 vídeos é pouco para atenção espaço-temporal treinada do zero, e o requisito era CPU. Não benchmarkei um Transformer aqui, então não vou afirmar um resultado que não medi."

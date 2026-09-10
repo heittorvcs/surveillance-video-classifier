@@ -48,11 +48,6 @@ def get_video_records(dir_path):
     records = []
     for class_name, label in CLASSES.items():
         folder = Path(dir_path) / class_name
-        if not folder.is_dir():
-            raise FileNotFoundError(
-                f"Pasta do dataset nao encontrada: {folder}\n"
-                "Baixe o RWF-2000 e extraia em archive/RWF-2000/ — ver o cabecalho deste arquivo."
-            )
         for video_file in sorted(folder.glob("*.avi")):
             records.append({
                 "video_path": str(video_file.as_posix()),
@@ -60,8 +55,6 @@ def get_video_records(dir_path):
                 "label_name": class_name,
                 "group_id": group_id(video_file.name),
             })
-    if not records:
-        raise RuntimeError(f"Nenhum .avi encontrado em {dir_path}")
     return pd.DataFrame(records)
 
 
@@ -96,8 +89,6 @@ def assert_no_leakage(splits):
 
 
 def main():
-    # Import tardio: assim group_id() e assert_no_leakage() podem ser reutilizados
-    # (pelos testes, por exemplo) sem exigir scikit-learn instalado.
     from sklearn.model_selection import GroupShuffleSplit
 
     root = Path("archive/RWF-2000")
@@ -105,7 +96,6 @@ def main():
 
     df_train = get_video_records(root / "train")
 
-    # A pasta oficial `val` (400 videos) vira validacao + teste, dividida por grupo.
     df_val_pool = get_video_records(root / "val")
     gss = GroupShuffleSplit(n_splits=1, test_size=0.5, random_state=42)
     val_idx, test_idx = next(gss.split(df_val_pool, df_val_pool["label"], groups=df_val_pool["group_id"]))

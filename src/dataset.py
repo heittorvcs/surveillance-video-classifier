@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import torch
 import numpy as np
@@ -72,17 +74,33 @@ class RWF2000Dataset(Dataset):
     src/build_cache.py e src/train.py.
     """
 
-    def __init__(self, csv_file, num_frames=16, flip=False):
+    def __init__(self, csv_file, num_frames=16, flip=False, root=None):
         self.df = pd.read_csv(csv_file)
         self.num_frames = num_frames
         self.flip = flip
+        self.root = root
 
     def __len__(self):
         return len(self.df)
 
+    def resolve(self, video_path):
+        """
+        Reescreve o caminho do CSV sob `root`, quando informado.
+
+        Os CSVs guardam caminhos relativos comecando por "archive/". Apontar para
+        outra raiz serve a dois casos: dataset guardado fora da pasta do projeto, e
+        caminhos longos demais para o limite de 260 caracteres do Windows -- 16 dos
+        1.600 videos de treino do RWF-2000 tem nomes que estouram esse limite a
+        partir de uma pasta profunda, e o OpenCV nao aceita o prefixo \?\.
+        """
+        if not self.root:
+            return video_path
+        partes = video_path.replace("\\", "/").split("/", 1)
+        return os.path.join(self.root, partes[1] if len(partes) > 1 else partes[0])
+
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        frames = sample_frames(row["video_path"], self.num_frames)
+        frames = sample_frames(self.resolve(row["video_path"]), self.num_frames)
 
         # Flip horizontal aplicado de forma identica aos 16 quadros do clipe
         if self.flip:

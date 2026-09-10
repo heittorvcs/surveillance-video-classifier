@@ -84,7 +84,35 @@ A garantia é verificada, não declarada: `create_splits.py` falha se um grupo a
 
 **Cuidado que o backbone congelado exige:** como as features são extraídas uma vez e cacheadas, aplicar o flip nessa passada daria uma perturbação **fixa** por vídeo, igual em todas as épocas — ruído congelado, não augmentation. Por isso [`src/build_cache.py`](src/build_cache.py) materializa dois caches (original e espelhado) e o treino sorteia entre eles a cada época. Custo: o dobro de disco, zero de compute.
 
-> Os resultados publicados foram treinados **sem** o cache espelhado, por indisponibilidade do dataset bruto no ambiente de retreinamento. O ganho do augmentation está implementado, mas não medido.
+### O augmentation ajuda? Não — e dá para explicar por quê
+
+Comparar um modelo com augmentation contra um sem não responde à pergunta: a variação entre sementes é maior que o efeito a medir. [`benchmarks/eval_augmentation.py`](benchmarks/eval_augmentation.py) treina **20 sementes por arquitetura em cada braço** — 240 treinamentos — e compara as distribuições no teste cego.
+
+| Arquitetura | SEM augmentation (AUC) | COM augmentation (AUC) | Diferença |
+| :--- | :---: | :---: | :---: |
+| Baseline | 85.07 ± 0.75 | 84.74 ± 1.11 | −0.34 ± 0.30 |
+| Dual-Stream | 88.66 ± 0.80 | 88.93 ± 0.67 | +0.27 ± 0.23 |
+| TriStream | 89.74 ± 1.09 | 89.64 ± 0.75 | −0.11 ± 0.30 |
+| DualMeanMax | 88.73 ± 0.68 | 88.59 ± 1.02 | −0.14 ± 0.27 |
+
+Todos os efeitos ficam **dentro de 1,2 erro-padrão de zero**, e os sinais são inconsistentes — três negativos e um positivo. Isso é assinatura de ruído, não de efeito. O maior efeito (0,34 p.p.) é menos da metade do desvio entre sementes (0,83 p.p.).
+
+**A causa é estrutural.** No espaço de features do backbone congelado:
+
+| Comparação | Similaridade de cosseno |
+| :--- | :---: |
+| Vídeo × ele mesmo espelhado | **0.980** |
+| Vídeo × outro vídeo qualquer | 0.591 |
+
+O MobileNetV3 foi pré-treinado no ImageNet, que **já usa flip horizontal como augmentation**. As features saem quase invariantes ao espelhamento, então as cabeças temporais recebem praticamente o mesmo vetor — não há o que aprender de novo. O augmentation não falhou por implementação; ele é redundante sobre um backbone congelado que já viu essa transformação.
+
+```bash
+python benchmarks/eval_augmentation.py --seeds 20
+```
+
+Resultado completo em [`reports/augmentation_effect.json`](reports/augmentation_effect.json).
+
+> Os checkpoints entregues foram treinados antes dessa correção, com o flip aplicado uma única vez na extração. O experimento mostra que as três variantes — sem flip, com flip por época, e com flip congelado — são estatisticamente equivalentes, então os resultados publicados seguem válidos.
 
 ---
 
@@ -272,6 +300,9 @@ python tests/test_splits.py
 
 # validacao externa (exige o SCVD baixado a parte)
 python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
+
+# efeito do augmentation (240 treinamentos, ~50 min)
+python benchmarks/eval_augmentation.py --seeds 20
 ```
 
 ---
@@ -280,11 +311,10 @@ python benchmarks/eval_cross_dataset.py --scvd_root caminho/para/SCVD_converted
 
 * **Movimento como proxy de agressão.** A validação externa expôs a causa raiz: a classe negativa desloca quando o cenário tem mais circulação. É a mesma origem dos falsos positivos confiantes da análise de erros.
 * **A calibração não transfere entre domínios.** O AUC sobrevive à troca de dataset, mas o limiar ótimo vai de 0,50 para 0,82. Implantar num local novo exige um conjunto de calibração local.
-* **Data augmentation não medido.** O mecanismo está implementado e correto, mas os resultados foram treinados sem o cache espelhado.
 * **Seleção sobre 215 vídeos.** Escolher entre 3.800 trios num conjunto desse tamanho ainda superajusta a validação — daí o limiar fixo. Um `GroupKFold` sobre treino + validação daria estimativa mais estável.
 * **Domínio.** RWF-2000 concentra cenas diurnas e câmeras estáticas; PTZ e infravermelho exigem dados complementares, e contextos esportivos tendem a gerar falsos positivos. O modelo consome clipes de 5 s — operação contínua exigiria janela deslizante com voto temporal.
 
-**Em ordem de prioridade:** treinar com múltiplos domínios para separar movimento de agressão; medir o ganho do augmentation; trocar o split único por `GroupKFold`; quantização INT8 partindo dos grafos ONNX já verificados; otimizar a decodificação, que é o gargalo real de latência.
+**Em ordem de prioridade:** treinar com múltiplos domínios para separar movimento de agressão; buscar um augmentation que o backbone congelado não anule — recorte temporal ou ruído fotométrico, já que o geométrico é redundante; trocar o split único por `GroupKFold`; quantização INT8 partindo dos grafos ONNX já verificados; otimizar a decodificação, que é o gargalo real de latência.
 
 ---
 

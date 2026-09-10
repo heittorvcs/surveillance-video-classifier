@@ -63,7 +63,7 @@ def extract_features(dataset, backbone, avgpool, device, batch_size=8, desc="Ext
     return torch.cat(all_features, dim=0), torch.cat(all_labels, dim=0)
 
 
-def build(split, flip, backbone, avgpool, device, force=False):
+def build(split, flip, backbone, avgpool, device, force=False, root=None):
     suffix = "_flip" if flip else ""
     out_path = os.path.join(CACHE_DIR, f"features_{split}{suffix}.pt")
 
@@ -78,7 +78,7 @@ def build(split, flip, backbone, avgpool, device, force=False):
             f"com o dataset RWF-2000 em archive/RWF-2000/."
         )
 
-    dataset = RWF2000Dataset(csv_path, num_frames=16, flip=flip)
+    dataset = RWF2000Dataset(csv_path, num_frames=16, flip=flip, root=root)
     label = f"{split}{' (flip)' if flip else ''}"
     feats, labels = extract_features(dataset, backbone, avgpool, device, desc=label)
 
@@ -93,6 +93,10 @@ def main():
     parser.add_argument("--no_flip_cache", action="store_true",
                         help="Nao gera o cache espelhado do treino (desativa o data augmentation)")
     parser.add_argument("--force", action="store_true", help="Reextrai mesmo se o cache ja existir")
+    parser.add_argument("--dataset_root", type=str, default=None,
+                        help="Raiz alternativa do dataset, substituindo o prefixo 'archive/' dos CSVs. "
+                             "Use quando o dataset estiver fora do projeto ou quando os caminhos "
+                             "estourarem o limite de 260 caracteres do Windows.")
     args = parser.parse_args()
 
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -102,9 +106,11 @@ def main():
     backbone, avgpool = build_backbone(device)
 
     for split in args.splits:
-        build(split, flip=False, backbone=backbone, avgpool=avgpool, device=device, force=args.force)
+        build(split, flip=False, backbone=backbone, avgpool=avgpool, device=device,
+              force=args.force, root=args.dataset_root)
         if split == "train" and not args.no_flip_cache:
-            build(split, flip=True, backbone=backbone, avgpool=avgpool, device=device, force=args.force)
+            build(split, flip=True, backbone=backbone, avgpool=avgpool, device=device,
+                  force=args.force, root=args.dataset_root)
 
     print("\nCaches disponiveis em data/cache/:")
     for name in sorted(os.listdir(CACHE_DIR)):
